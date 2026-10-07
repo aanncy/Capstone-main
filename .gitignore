@@ -1,0 +1,26 @@
+# Downloaded libraries (teammates recreate these with npm install)
+node_modules/
+
+# Build output
+dist/
+
+# Local settings and secrets. Never commit these.
+.env
+.env.local
+
+# Python (for the backend later)
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Editor and operating system files
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+# Saved diagrams from the backend (may contain document content)
+outputs/

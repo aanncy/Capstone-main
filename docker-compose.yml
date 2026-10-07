@@ -1,0 +1,8 @@
+# Self-hosted draw.io. Start with: docker compose up -d
+# Then open http://localhost:8080 to confirm it is running.
+services:
+  drawio:
+    image: jgraph/drawio:latest   # pin a specific version before the demo
+    ports:
+      - "8080:8080"
+    restart: unless-stopped
