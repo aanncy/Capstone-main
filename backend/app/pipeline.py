@@ -37,13 +37,14 @@ def _problems(reply: str) -> tuple[Diagram | None, list[str]]:
 async def generate_diagram(text: str, provider, attachments=(), max_fixes: int = 2, trace: list | None = None) -> Diagram:
     """Ask the model, validate, and automatically ask again with the problems listed (up to max_fixes times).
     attachments are sent with every request, so fix rounds can still see the original files.
-    If trace is given, each raw model reply and its problems are appended to it."""
+    If trace is given, each raw model reply, the model's reasoning summary (if any) and its problems are appended to it."""
     user = build_user_prompt(text, [a.name for a in attachments])
     reply = await provider.complete(SYSTEM_PROMPT, user, attachments)
     for attempt in range(max_fixes + 1):
         diagram, errors = _problems(reply)
         if trace is not None:
-            trace.append({"attempt": attempt + 1, "reply": reply, "problems": errors})
+            trace.append({"attempt": attempt + 1, "reply": reply, "problems": errors,
+                          "thoughts": getattr(provider, "thoughts", None)})
         if diagram is not None and not errors:
             log.info("diagram valid on attempt %d", attempt + 1)
             return diagram
