@@ -70,17 +70,22 @@ class GeminiProvider:
     name = "gemini"
     BASE = "https://generativelanguage.googleapis.com/v1beta/models"
 
-    def __init__(self, api_key: str, model: str):
-        self.api_key, self.model = api_key, model
+    def __init__(self, api_key: str, model: str, thoughts: bool = False):
+        self.api_key, self.model, self.thoughts = api_key, model, thoughts
+        self.last_thoughts = None  # Gemini's summary of its reasoning for the last reply (if thoughts is on)
 
     async def complete(self, system: str, user: str, attachments=()) -> str:
         if not self.api_key:
             raise ProviderError("GEMINI_API_KEY is not set. Add it to backend/.env.")
+        self.last_thoughts = None
         files = [{"inlineData": {"mimeType": a.mime, "data": base64.b64encode(a.data).decode("ascii")}} for a in attachments]
+        config = {"temperature": 0.2, "responseMimeType": "application/json"}
+        if self.thoughts:
+            config["thinkingConfig"] = {"includeThoughts": True}
         body = {
             "systemInstruction": {"parts": [{"text": system}]},
             "contents": [{"role": "user", "parts": files + [{"text": user}]}],
-            "generationConfig": {"temperature": 0.2, "responseMimeType": "application/json"},
+            "generationConfig": config,
         }
         try:
             async with httpx.AsyncClient(timeout=120) as client:
@@ -99,7 +104,9 @@ class GeminiProvider:
             raise ProviderError(f"Gemini error {r.status_code}: {r.text[:200]}")
         try:
             parts = r.json()["candidates"][0]["content"]["parts"]
-            return "".join(p.get("text", "") for p in parts)
+            # Thought-summary parts are flagged "thought": true; keep them out of the answer
+            self.last_thoughts = "\n\n".join(p.get("text", "") for p in parts if p.get("thought")) or None
+            return "".join(p.get("text", "") for p in parts if not p.get("thought"))
         except (KeyError, IndexError, ValueError) as e:
             raise ProviderError("Gemini sent a reply in an unexpected format (possibly blocked by safety filters).") from e
 
@@ -150,10 +157,12 @@ class ProviderChain:
         self.providers = providers
         self.calls = 0  # model calls made, including fix-up retries
         self.used = None  # "provider/model" that gave the last answer
+        self.thoughts = None  # reasoning summary for the last answer, if that provider gives one
 
     async def complete(self, system: str, user: str, attachments=()) -> str:
         problems = []
         self.calls += 1
+        self.thoughts = None
         for p in self.providers:
             start = time.monotonic()
             try:
@@ -163,6 +172,7 @@ class ProviderChain:
                 problems.append(f"{p.name}: {e}")
                 continue
             self.used = f"{p.name}/{getattr(p, 'model', '?')}"
+            self.thoughts = getattr(p, "last_thoughts", None)
             log.info("%s answered in %.1fs (%d chars)", p.name, time.monotonic() - start, len(reply))
             return reply
         raise ProviderError(" | ".join(problems) or "No AI provider is configured.")
@@ -175,7 +185,8 @@ def build_providers_from_env() -> ProviderChain:
         if name == "github_models":
             providers.append(GitHubModelsProvider(os.getenv("GITHUB_TOKEN", ""), os.getenv("GITHUB_MODEL", "openai/gpt-4.1")))
         elif name == "gemini":
-            providers.append(GeminiProvider(os.getenv("GEMINI_API_KEY", ""), os.getenv("GEMINI_MODEL", "gemini-flash-latest")))
+            providers.append(GeminiProvider(os.getenv("GEMINI_API_KEY", ""), os.getenv("GEMINI_MODEL", "gemini-flash-latest"),
+                                            os.getenv("GEMINI_THOUGHTS", "true").lower() != "false"))
         elif name == "copilot_sdk":
             providers.append(CopilotSdkProvider(os.getenv("COPILOT_MODEL", "gpt-4.1")))
     return ProviderChain(providers)

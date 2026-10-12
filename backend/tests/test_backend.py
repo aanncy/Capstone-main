@@ -1,6 +1,9 @@
 import asyncio
 import json
 import xml.etree.ElementTree as ET
+from typing import get_args
+
+import pytest
 
 from fastapi.testclient import TestClient
 
@@ -8,6 +11,7 @@ from app.convert import to_drawio_xml
 from app.main import app, get_provider
 from app.pipeline import PipelineError, generate_diagram, parse_json
 from app.providers import ProviderChain, ProviderError
+from app.schema import Diagram, NodeType
 
 GOOD = {
     "title": "Payment request",
@@ -25,6 +29,23 @@ GOOD = {
         {"from": "n3", "to": "n2", "label": "No"},
     ],
 }
+
+
+@pytest.mark.parametrize("kind", get_args(NodeType))
+def test_all_node_symbols_convert_with_connected_geometry(kind):
+    from app.convert import SHAPES, STYLES
+    data = json.loads(json.dumps(GOOD))
+    data["nodes"][1]["type"] = kind
+    root = ET.fromstring(to_drawio_xml(Diagram.model_validate(data)))
+    cell = root.find(".//object[@id='n2']/mxCell")
+    assert cell is not None and cell.get("style") == STYLES[kind]
+    geometry = cell.find("mxGeometry")
+    assert float(geometry.get("width")) >= SHAPES[kind][1]
+    assert float(geometry.get("height")) >= SHAPES[kind][2]
+    if kind == "connector":
+        assert geometry.get("width") == geometry.get("height")
+    assert root.find(".//mxCell[@source='n1'][@target='n2']") is not None
+    assert root.find(".//mxCell[@source='n2'][@target='n3']") is not None
 
 
 class Fake:
@@ -143,7 +164,7 @@ def test_runs_are_saved_side_by_side_per_input(tmp_path, monkeypatch):
     monkeypatch.setenv("OUTPUT_DIR", str(tmp_path))
     d = Diagram.model_validate(GOOD)
     pdf = [Attachment("flow.pdf", "application/pdf", b"%PDF")]
-    tries = [{"attempt": 1, "reply": "oops", "problems": ["not JSON"]},
+    tries = [{"attempt": 1, "reply": "oops", "problems": ["not JSON"], "thoughts": "Found two roles."},
              {"attempt": 2, "reply": "```json\n" + json.dumps(GOOD) + "\n```", "problems": []}]
     a = save_run("", "flow.pdf", pdf, {"model": "gemini/flash"}, tries, d, to_drawio_xml(d))
     b = save_run("", "flow.pdf", pdf, {"model": "github_models/openai/gpt-4.1"}, tries[:1], error="gave up")
@@ -151,6 +172,24 @@ def test_runs_are_saved_side_by_side_per_input(tmp_path, monkeypatch):
     stem = a.with_suffix("")
     assert stem.with_suffix(".drawio").exists() and not b.with_suffix(".drawio").exists()
     assert (a.parent / f"{stem.name}_attempt1.txt").read_text() == "oops"
+    assert (a.parent / f"{stem.name}_attempt1_thoughts.md").read_text() == "Found two roles."
+    assert not (a.parent / f"{stem.name}_attempt2_thoughts.md").exists()
     assert json.loads((a.parent / f"{stem.name}_attempt2.json").read_text())["title"] == "Payment request"
     meta = json.loads(a.read_text())
     assert meta["run"]["attempts"][0]["problems"] == ["not JSON"] and meta["diagram"]["title"] == "Payment request"
+
+
+def test_gemini_thoughts_are_kept_out_of_the_answer(monkeypatch):
+    import httpx
+    from app.providers import GeminiProvider
+    sent = {}
+
+    async def post(self, url, headers=None, json=None):
+        sent.update(json)
+        parts = [{"text": "Lanes: Maker, Approver.", "thought": True}, {"text": '{"title": "x"}'}]
+        return httpx.Response(200, json={"candidates": [{"content": {"parts": parts}}]})
+    monkeypatch.setattr(httpx.AsyncClient, "post", post)
+    chain = ProviderChain([GeminiProvider("key", "gemini-test", thoughts=True)])
+    assert asyncio.run(chain.complete("s", "u")) == '{"title": "x"}'
+    assert chain.thoughts == "Lanes: Maker, Approver."
+    assert sent["generationConfig"]["thinkingConfig"] == {"includeThoughts": True}

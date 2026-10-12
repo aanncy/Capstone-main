@@ -2,7 +2,8 @@
 Layout: outputs/<input name>-<input hash>/<time>_<model>[_FAILED].* with
   .drawio            the final diagram as draw.io XML (successful runs only)
   .json              run details, each attempt's problems, and the final diagram
-  _attempt<N>.json   the model's raw reply for that attempt (.txt if it was not valid JSON)"""
+  _attempt<N>.json   the model's raw reply for that attempt (.txt if it was not valid JSON)
+  _attempt<N>_thoughts.md   the model's summary of its reasoning for that attempt (Gemini only, if it sent one)"""
 import hashlib
 import json
 import logging
@@ -45,6 +46,8 @@ def save_run(text: str, file_name: str | None, attachments, run: dict, attempts=
                     json.dumps(parse_json(a["reply"]), indent=2, ensure_ascii=False), encoding="utf-8")
             except json.JSONDecodeError:
                 (folder / f"{stem}_attempt{a['attempt']}.txt").write_text(a["reply"], encoding="utf-8")
+            if a.get("thoughts"):
+                (folder / f"{stem}_attempt{a['attempt']}_thoughts.md").write_text(a["thoughts"], encoding="utf-8")
         meta = {"saved_at": datetime.now().isoformat(timespec="seconds"), "file": file_name, "typed_text": text,
                 "attachments": [{"name": a.name, "mime": a.mime, "bytes": len(a.data)} for a in attachments],
                 **run, "error": error,

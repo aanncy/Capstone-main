@@ -4,7 +4,12 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-NodeType = Literal["start", "end", "task", "decision", "subprocess"]
+NodeType = Literal[
+    "start", "end", "task", "decision", "subprocess",
+    "document", "multiple_documents", "data_storage", "internal_storage",
+    "database", "manual_input", "manual_operation", "input_output", "display",
+    "merge", "connector", "predefined_process",
+]
 
 
 class Lane(BaseModel):
