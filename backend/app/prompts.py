@@ -9,7 +9,7 @@ Schema:
   "title": "short process name",
   "lanes": [{"id": "maker", "name": "Maker"}],
   "nodes": [
-    {"id": "n1", "type": "start|end|task|decision|subprocess", "label": "short verb phrase",
+    {"id": "n1", "type": "start|end|task|decision|subprocess|document|multiple_documents|data_storage|internal_storage|database|manual_input|manual_operation|input_output|display|merge|connector|predefined_process", "label": "short verb phrase",
      "lane": "<lane id>", "source_ref": "where in the text", "confidence": 0.0-1.0}
   ],
   "edges": [{"from": "n1", "to": "n2", "label": ""}]
@@ -41,6 +41,18 @@ Level of detail:
   in outline.
 - Do not invent steps, branches or owners that the document does not support. When
   detail is missing, leave it out rather than guessing.
+
+Special flowchart symbols:
+- Use document for a document/report, multiple_documents for a set of documents,
+  data_storage for stored data, internal_storage for in-memory/internal storage,
+  and database for a database explicitly identified by the source.
+- Use manual_input for typing/keying data, manual_operation for a manual activity,
+  input_output for receiving or sending data, and display for presenting information
+  on a screen. Use predefined_process for an explicitly named reusable procedure.
+- Use merge for reconverging alternative paths, and connector for an explicit
+  on-page continuation reference. Neither symbol is a decision or terminal outcome.
+- Choose these symbols only when supported by the source. Keep ordinary activities
+  as task nodes; do not add storage/document nodes disconnected from the process.
 
 Lanes:
 - A lane is a role, team, system or external party that performs steps. Include

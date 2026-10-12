@@ -4,5 +4,5 @@ services:
   drawio:
     image: jgraph/drawio:latest   # pin a specific version before the demo
     ports:
-      - "8000:8000"
+      - "8080:8080"
     restart: unless-stopped

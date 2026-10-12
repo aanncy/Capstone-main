@@ -1,6 +1,9 @@
 import asyncio
 import json
 import xml.etree.ElementTree as ET
+from typing import get_args
+
+import pytest
 
 from fastapi.testclient import TestClient
 
@@ -8,6 +11,7 @@ from app.convert import to_drawio_xml
 from app.main import app, get_provider
 from app.pipeline import PipelineError, generate_diagram, parse_json
 from app.providers import ProviderChain, ProviderError
+from app.schema import Diagram, NodeType
 
 GOOD = {
     "title": "Payment request",
@@ -25,6 +29,23 @@ GOOD = {
         {"from": "n3", "to": "n2", "label": "No"},
     ],
 }
+
+
+@pytest.mark.parametrize("kind", get_args(NodeType))
+def test_all_node_symbols_convert_with_connected_geometry(kind):
+    from app.convert import SHAPES, STYLES
+    data = json.loads(json.dumps(GOOD))
+    data["nodes"][1]["type"] = kind
+    root = ET.fromstring(to_drawio_xml(Diagram.model_validate(data)))
+    cell = root.find(".//object[@id='n2']/mxCell")
+    assert cell is not None and cell.get("style") == STYLES[kind]
+    geometry = cell.find("mxGeometry")
+    assert float(geometry.get("width")) >= SHAPES[kind][1]
+    assert float(geometry.get("height")) >= SHAPES[kind][2]
+    if kind == "connector":
+        assert geometry.get("width") == geometry.get("height")
+    assert root.find(".//mxCell[@source='n1'][@target='n2']") is not None
+    assert root.find(".//mxCell[@source='n2'][@target='n3']") is not None
 
 
 class Fake:

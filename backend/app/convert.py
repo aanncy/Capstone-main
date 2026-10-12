@@ -24,8 +24,14 @@ BEND, SHARE, CROSS = 60, 40, 50       # routing costs, in pixels of extra length
 LINE_H = 16
 # per type: characters per line, width, minimum height, height added around the text
 SHAPES = {"start": (20, 160, 50, 20), "end": (20, 160, 50, 20), "task": (24, 180, 60, 24),
-          "subprocess": (22, 190, 60, 24), "decision": (16, 190, 90, 56)}
-ONE_PER_SIDE = {"start", "end", "decision"}  # shapes whose sides only have one clean attachment point
+          "subprocess": (22, 190, 60, 24), "decision": (16, 190, 90, 56),
+          "document": (22, 180, 80, 40), "multiple_documents": (20, 190, 90, 48),
+          "data_storage": (20, 190, 70, 32), "internal_storage": (20, 180, 80, 40),
+          "database": (20, 180, 90, 48), "manual_input": (22, 190, 80, 40),
+          "manual_operation": (18, 190, 80, 40), "input_output": (18, 190, 70, 32),
+          "display": (18, 190, 70, 32), "merge": (12, 160, 100, 64),
+          "connector": (8, 90, 90, 40), "predefined_process": (22, 190, 60, 24)}
+ONE_PER_SIDE = {"start", "end", "decision", "connector", "merge"}  # shapes whose sides only have one clean attachment point
 STYLES = {
     "start": "rounded=1;arcSize=50;html=1;whiteSpace=wrap;fillColor=#e0f2fe;strokeColor=#0369a1;",
     "end": "rounded=1;arcSize=50;html=1;whiteSpace=wrap;fillColor=#e0f2fe;strokeColor=#0369a1;",
@@ -33,6 +39,23 @@ STYLES = {
     "subprocess": "shape=process;html=1;whiteSpace=wrap;backgroundOutline=1;fillColor=#ffffff;strokeColor=#334155;",
     "decision": "rhombus;html=1;whiteSpace=wrap;fillColor=#fef9c3;strokeColor=#a16207;",
 }
+# Native draw.io flowchart shapes; keep their names aligned with its Flowchart palette.
+_FLOWCHART_SHAPES = {
+    "document": "shape=mxgraph.flowchart.document2;size=0.25;",
+    "multiple_documents": "shape=mxgraph.flowchart.multi-document;boundedLbl=1;",
+    "data_storage": "shape=mxgraph.flowchart.stored_data;",
+    "internal_storage": "shape=internalStorage;dx=15;dy=15;",
+    "database": "shape=mxgraph.flowchart.database;",
+    "manual_input": "shape=manualInput;boundedLbl=1;size=26;",
+    "manual_operation": "shape=trapezoid;perimeter=trapezoidPerimeter;size=0.23;flipV=1;",
+    "input_output": "shape=parallelogram;perimeter=parallelogramPerimeter;size=0.23;",
+    "display": "shape=mxgraph.flowchart.display;",
+    "merge": "shape=mxgraph.flowchart.merge_or_storage;",
+    "connector": "shape=ellipse;perimeter=ellipsePerimeter;aspect=fixed;",
+    "predefined_process": "shape=process;size=0.14;backgroundOutline=1;",
+}
+STYLES.update({kind: shape + "html=1;whiteSpace=wrap;fillColor=#ffffff;strokeColor=#334155;"
+               for kind, shape in _FLOWCHART_SHAPES.items()})
 LANE = "swimlane;horizontal=0;startSize=32;html=1;whiteSpace=wrap;fillColor=#f8fafc;strokeColor=#94a3b8;fontStyle=1;"
 EDGE = "edgeStyle=none;rounded=1;html=1;endArrow=block;endFill=1;jumpStyle=arc;jumpSize=10;strokeColor=#334155;"
 LABEL = "labelBackgroundColor=#ffffff;fontSize=11;fontStyle=1;"
@@ -53,7 +76,8 @@ def _r(v: float) -> float:
 def _size(n) -> tuple[int, int]:
     chars, w, min_h, extra = SHAPES[n.type]
     lines = len(textwrap.wrap(n.label, chars)) or 1
-    return w, max(min_h, lines * LINE_H + extra)
+    h = max(min_h, lines * LINE_H + extra)
+    return (max(w, h), max(w, h)) if n.type == "connector" else (w, h)
 
 
 def _label_width(s: str) -> int:
