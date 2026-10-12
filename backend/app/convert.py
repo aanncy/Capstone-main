@@ -652,7 +652,8 @@ def to_drawio_xml(d: Diagram) -> str:
         x, y, w, h = lay.box[n.id]
         top = lay.lane_y[n.lane][0]
         out.append(
-            f'<object label="{_e(n.label)}" id="{_e(n.id)}" source_ref="{_e(n.source_ref)}" confidence="{n.confidence}">'
+            f'<object label="{_e(n.label)}" id="{_e(n.id)}" node_type="{n.type}" source_ref="{_e(n.source_ref)}" '
+            f'confidence="{n.confidence}">'
             f'<mxCell style="{STYLES[n.type]}" vertex="1" parent="lane_{_e(n.lane)}">'
             f'<mxGeometry x="{_r(x - LANE_X)}" y="{_r(y - top)}" width="{w}" height="{h}" as="geometry"/></mxCell></object>'
         )

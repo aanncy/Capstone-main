@@ -101,3 +101,30 @@ def build_fix_prompt(original_user_prompt: str, previous_reply: str, errors: lis
         f"It had these problems:\n{problems}\n\n"
         "Return the corrected, complete JSON object only."
     )
+
+
+AMEND_SYSTEM_PROMPT = SYSTEM_PROMPT + """
+Amending an existing diagram:
+- Instead of documentation you may be given an existing diagram as JSON and a change
+  requested by the user. Apply exactly that change and return the complete, updated diagram.
+- Change only what the request needs. Every node, edge and lane it does not affect stays
+  exactly as it is: same id, label, type, lane, source_ref and confidence.
+- Keep existing ids, even ones that do not follow the n1, n2, ... pattern (the user may have
+  added steps by hand). This overrides the id rule above. Give new nodes new ids that follow
+  the highest existing nN.
+- When you insert a step between two others, reroute the arrows through it rather than
+  leaving the old arrow in place. When you remove a step, reconnect its neighbours so the
+  flow stays connected.
+- New nodes get source_ref "Amended: <short summary of the request>" and confidence 0.9.
+- The structure rules above still apply to the result. If the existing diagram already
+  breaks one of them, fix that too.
+- If the request is unclear or cannot be applied, return the diagram unchanged.
+"""
+
+
+def build_amend_prompt(diagram_json: str, instruction: str) -> str:
+    return (
+        f"Current diagram:\n{diagram_json}\n\n"
+        f"Requested change:\n{instruction}\n\n"
+        "Return the complete updated JSON object now."
+    )

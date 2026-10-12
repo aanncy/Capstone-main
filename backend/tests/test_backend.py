@@ -1,3 +1,4 @@
+import re
 import asyncio
 import json
 import xml.etree.ElementTree as ET
@@ -193,3 +194,62 @@ def test_gemini_thoughts_are_kept_out_of_the_answer(monkeypatch):
     assert asyncio.run(chain.complete("s", "u")) == '{"title": "x"}'
     assert chain.thoughts == "Lanes: Maker, Approver."
     assert sent["generationConfig"]["thinkingConfig"] == {"includeThoughts": True}
+
+
+def test_drawio_xml_reads_back_into_the_same_diagram():
+    import base64, zlib
+    from urllib.parse import quote
+    from app.read_drawio import from_drawio_xml
+    from app.schema import Diagram
+    d = Diagram.model_validate(GOOD)
+    xml = to_drawio_xml(d)
+    assert from_drawio_xml(xml).model_dump() == d.model_dump()
+    # draw.io may save the page compressed
+    model = re.search(r"<mxGraphModel.*</mxGraphModel>", xml).group(0)
+    deflate = zlib.compressobj(9, zlib.DEFLATED, -15)
+    packed = base64.b64encode(deflate.compress(quote(model).encode()) + deflate.flush()).decode()
+    compressed = f'<mxfile><diagram id="d1" name="Payment request">{packed}</diagram></mxfile>'
+    assert from_drawio_xml(compressed).model_dump() == d.model_dump()
+
+
+def test_shapes_drawn_by_hand_are_read_with_a_type_and_lane():
+    from app.read_drawio import from_drawio_xml
+    from app.schema import Diagram
+    xml = to_drawio_xml(Diagram.model_validate(GOOD)).replace("</root>", (
+        '<mxCell id="x1" value="Call &lt;b&gt;customer&lt;/b&gt;" style="rhombus;whiteSpace=wrap;" vertex="1" parent="lane_maker">'
+        '<mxGeometry x="10" y="10" width="80" height="80" as="geometry"/></mxCell>'
+        '<mxCell id="x2" value="" style="endArrow=classic;" edge="1" parent="1" source="n2" target="x1">'
+        '<mxGeometry relative="1" as="geometry"/></mxCell>'
+        '<mxCell id="x3" value="Yes" style="edgeLabel;" vertex="1" connectable="0" parent="x2">'
+        '<mxGeometry relative="1" as="geometry"/></mxCell></root>'))
+    d = from_drawio_xml(xml)
+    x1 = next(n for n in d.nodes if n.id == "x1")
+    assert (x1.type, x1.lane, x1.label, x1.source_ref) == ("decision", "maker", "Call customer", "Added in the editor")
+    assert any(e.source == "n2" and e.target == "x1" and e.label == "Yes" for e in d.edges)
+    assert len(d.nodes) == 5  # the arrow's label cell is not a step
+
+
+def test_amend_sends_the_current_diagram_and_returns_the_new_one():
+    changed = json.loads(json.dumps(GOOD))
+    changed["nodes"].insert(2, {"id": "n5", "type": "task", "label": "Check compliance", "lane": "approver"})
+    changed["edges"][1] = {"from": "n2", "to": "n5", "label": ""}
+    changed["edges"].append({"from": "n5", "to": "n3", "label": ""})
+    fake = Fake(json.dumps(changed))
+    seen = []
+    real = fake.complete
+
+    async def spy(system, user, attachments=()):
+        seen.append((system, user))
+        return await real(system, user, attachments)
+    fake.complete = spy
+    app.dependency_overrides[get_provider] = lambda: fake
+    from app.schema import Diagram
+    c = TestClient(app)
+    r = c.post("/api/amend", json={"xml": to_drawio_xml(Diagram.model_validate(GOOD)), "instruction": "Add a compliance check"})
+    assert r.status_code == 200 and 'id="n5"' in r.json()["xml"]
+    system, user = seen[0]
+    assert "Amending an existing diagram" in system
+    assert "Add a compliance check" in user and '"Prepare documents"' in user
+    assert c.post("/api/amend", json={"xml": "<mxfile/>", "instruction": "x"}).status_code == 400
+    assert c.post("/api/amend", json={"xml": "x", "instruction": " "}).status_code == 400
+    app.dependency_overrides.clear()

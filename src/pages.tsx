@@ -4,7 +4,7 @@ import type { DragEvent } from "react";
 import DrawioEditor from "./DrawioEditor";
 import type { EditorHandle } from "./DrawioEditor";
 
-import { STAGES } from "./api";
+import { STAGES, amendDiagram } from "./api";
 import type { GenerateInput, Stage } from "./api";
 
 import { SAMPLE_TEXT } from "./sampleDiagram";
@@ -396,6 +396,11 @@ export function EditorPage({
   const editor =
     useRef<EditorHandle>(null);
 
+  // what is loaded into draw.io (changes when an amendment comes back)
+  const [shown, setShown] =
+    useState(xml);
+
+  // what draw.io last reported, including the user's own edits
   const [latest, setLatest] =
     useState(xml);
 
@@ -457,17 +462,176 @@ export function EditorPage({
           </button>
         </div>
 
-        {/* IMPORTANT:
-            Do not wrap DrawioEditor in .editor-frame.
-            The DrawioEditor component needs to receive
-            the available flex height directly.
-        */}
-        <DrawioEditor
-          ref={editor}
-          xml={xml}
-          onChange={handleChange}
-        />
+        <div className="editor-body">
+          {/* IMPORTANT:
+              Do not wrap DrawioEditor in .editor-frame.
+              The DrawioEditor component needs to receive
+              the available flex height directly.
+          */}
+          <DrawioEditor
+            ref={editor}
+            xml={shown}
+            onChange={handleChange}
+          />
+
+          <AmendPanel
+            onApply={async (instruction) => {
+              const result =
+                await amendDiagram(
+                  latest,
+                  instruction
+                );
+
+              setShown(result.xml);
+              setLatest(result.xml);
+            }}
+          />
+        </div>
       </div>
     </div>
+  );
+}
+
+/**
+ * Collapsible side panel: the user describes a change in plain words,
+ * the AI applies it, and the new diagram replaces the one in the editor.
+ * Starts open.
+ */
+function AmendPanel({
+  onApply,
+}: {
+  onApply: (instruction: string) => Promise<void>;
+}) {
+  const [open, setOpen] =
+    useState(true);
+
+  const [text, setText] =
+    useState("");
+
+  const [busy, setBusy] =
+    useState(false);
+
+  const [error, setError] =
+    useState<string | null>(null);
+
+  const [done, setDone] =
+    useState<string | null>(null);
+
+  const apply = async () => {
+    const instruction = text.trim();
+
+    if (!instruction || busy) return;
+
+    setBusy(true);
+    setError(null);
+    setDone(null);
+
+    try {
+      await onApply(instruction);
+
+      setDone(instruction);
+      setText("");
+    } catch (e) {
+      setError(
+        e instanceof Error
+          ? e.message
+          : "Something went wrong while changing your diagram."
+      );
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (!open) {
+    return (
+      <aside className="amend-panel collapsed">
+        <button
+          type="button"
+          className="amend-toggle"
+          onClick={() => setOpen(true)}
+          aria-label="Open the amend diagram panel"
+          aria-expanded={false}
+        >
+          ‹
+        </button>
+
+        <span className="amend-collapsed-label">
+          Amend diagram
+        </span>
+      </aside>
+    );
+  }
+
+  return (
+    <aside className="amend-panel">
+      <div className="amend-head">
+        <h2>Amend diagram</h2>
+
+        <button
+          type="button"
+          className="amend-toggle"
+          onClick={() => setOpen(false)}
+          aria-label="Collapse the amend diagram panel"
+          aria-expanded={true}
+        >
+          ›
+        </button>
+      </div>
+
+      <div className="amend-body">
+        <label
+          htmlFor="amend-text"
+          className="amend-label"
+        >
+          Describe the change
+        </label>
+
+        <textarea
+          id="amend-text"
+          className="amend-text"
+          placeholder="For example: Add a compliance review after approval."
+          value={text}
+          disabled={busy}
+          onChange={(e) => setText(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+              e.preventDefault();
+              apply();
+            }
+          }}
+        />
+
+        <button
+          type="button"
+          className="primary amend-apply"
+          disabled={!text.trim() || busy}
+          onClick={apply}
+        >
+          {busy ? "Applying change..." : "Apply change"}
+        </button>
+
+        <p className="amend-hint">
+          Press Ctrl/⌘ + Enter to apply. Edits you made in the editor are kept, but the layout is redrawn.
+        </p>
+
+        {busy && (
+          <p className="amend-status" role="status">
+            The AI is updating your diagram. This usually takes 10 to 40 seconds.
+          </p>
+        )}
+
+        {done && !busy && (
+          <p className="amend-status ok" role="status">
+            Applied: “{done}”
+          </p>
+        )}
+
+        {error && (
+          <p className="amend-status err" role="alert">
+            {error}
+          </p>
+        )}
+      </div>
+    </aside>
   );
 }

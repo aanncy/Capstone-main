@@ -43,3 +43,25 @@ export async function generateDiagram(
   onStage("drawing");
   return (await res.json()) as { xml: string };
 }
+
+/**
+ * Apply a change described in plain words to the diagram currently in the editor.
+ * Real mode: POST /api/amend with the editor's XML (so manual edits are kept) and get the new XML back.
+ * Mock mode: waits, then returns the diagram unchanged.
+ */
+export async function amendDiagram(xml: string, instruction: string): Promise<{ xml: string }> {
+  if (USE_MOCK) {
+    await sleep(1500);
+    return { xml };
+  }
+  const res = await fetch("/api/amend", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ xml, instruction }),
+  });
+  if (!res.ok) {
+    const detail = await res.json().then((j) => j.detail as string).catch(() => null);
+    throw new Error(detail ?? `The server returned an error (${res.status}).`);
+  }
+  return (await res.json()) as { xml: string };
+}
