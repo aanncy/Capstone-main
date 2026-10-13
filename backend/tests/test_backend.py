@@ -39,10 +39,11 @@ def test_all_node_symbols_convert_with_connected_geometry(kind):
     data["nodes"][1]["type"] = kind
     root = ET.fromstring(to_drawio_xml(Diagram.model_validate(data)))
     cell = root.find(".//object[@id='n2']/mxCell")
-    assert cell is not None and cell.get("style") == STYLES[kind]
+    # the type's own style, plus margins that keep the text inside the outline
+    assert cell is not None and cell.get("style").startswith(STYLES[kind]) and "spacingLeft=" in cell.get("style")
     geometry = cell.find("mxGeometry")
-    assert float(geometry.get("width")) >= SHAPES[kind][1]
-    assert float(geometry.get("height")) >= SHAPES[kind][2]
+    assert float(geometry.get("width")) >= SHAPES[kind][0]
+    assert float(geometry.get("height")) >= SHAPES[kind][1]
     if kind == "connector":
         assert geometry.get("width") == geometry.get("height")
     assert root.find(".//mxCell[@source='n1'][@target='n2']") is not None
@@ -261,3 +262,47 @@ def test_amend_sends_the_current_diagram_and_returns_the_new_one():
     assert c.post("/api/amend", json={"xml": "<mxfile/>", "instruction": "x"}).status_code == 400
     assert c.post("/api/amend", json={"xml": "x", "instruction": " "}).status_code == 400
     app.dependency_overrides.clear()
+
+
+def test_lanes_are_tinted_and_named_along_their_length():
+    from app.schema import Diagram
+    long = json.loads(json.dumps(GOOD))  # a long flow, so the lane name has to repeat
+    long["nodes"] = [GOOD["nodes"][0]] + [
+        {"id": f"t{i}", "type": "task", "label": f"Step {i}", "lane": "maker" if i % 2 else "approver"} for i in range(12)
+    ] + [GOOD["nodes"][3]]
+    ids = [n["id"] for n in long["nodes"]]
+    long["edges"] = [{"from": a, "to": b} for a, b in zip(ids, ids[1:])]
+    root = ET.fromstring(to_drawio_xml(Diagram.model_validate(long)))
+    cells = {c.get("id"): c for c in root.iter("mxCell") if c.get("id")}
+    lanes = {o.get("id"): o.find("mxCell").get("style") for o in root.iter("object") if o.get("id", "").startswith("lane_")}
+    assert len({s.split("swimlaneFillColor=")[1].split(";")[0] for s in lanes.values()}) == 2
+    tags = [c for c in cells.values() if c.get("id").startswith("tag_maker_")]
+    assert len(tags) >= 2 and all(t.get("value") == "Maker" for t in tags)
+    steps = [o.find("mxCell") for o in root.iter("object") if o.get("node_type")]
+    for t in tags:  # a repeated name never sits on a step
+        g = t.find("mxGeometry")
+        tx, tw = float(g.get("x")), float(g.get("width"))
+        for s in steps:
+            sg = s.find("mxGeometry")
+            if s.get("parent") == "lane_maker":
+                sx, sy = float(sg.get("x")), float(sg.get("y"))
+                assert sx + float(sg.get("width")) < tx or sx > tx + tw or sy > float(g.get("y")) + float(g.get("height"))
+
+
+
+def test_labels_fit_inside_their_shape():
+    import textwrap
+    from app.convert import CHAR_W, LINE_H, SHAPES, _size
+    from app.schema import Node
+    labels = ["Approve", "Perform maker-checker/verification review of the instruction",
+              "Is the high-risk data condition detected for this outward payment?",
+              "Supercalifragilisticexpialidocious verification"]
+    for kind in get_args(NodeType):
+        for label in labels:
+            w, h = _size(Node(id="x", type=kind, label=label, lane="l"))
+            left, right, top, bottom = SHAPES[kind][3]
+            chars = int((w * (1 - left - right) - 8) // CHAR_W)
+            lines = textwrap.wrap(label, chars)
+            assert len(lines) * LINE_H + 8 <= h * (1 - top - bottom) + 1, (kind, label, w, h)
+            if w < SHAPES[kind][2]:  # below the widest allowed, a long word is never split
+                assert all(len(word) <= chars for word in label.split()), (kind, label, w)

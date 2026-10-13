@@ -10,9 +10,11 @@ Nudging  Arrows that share a gap are spread onto separate tracks, in the order w
          and crossings. Gaps that are too narrow are widened and everything is routed again.
 Every point is written into the XML, so draw.io shows exactly this drawing."""
 import bisect
+import colorsys
 import heapq
 import html
 import itertools
+import math
 import textwrap
 
 from .schema import Diagram
@@ -21,16 +23,21 @@ LANE_X, LANE_Y, HEADER = 40, 40, 32   # where the lanes start, and the width of 
 COL_GAP, PAD, ROW_GAP = 90, 40, 60    # starting size of the gaps arrows run in (grown when needed)
 MARGIN, TRACK = 14, 14                # clearance kept around boxes; distance between parallel arrows
 BEND, SHARE, CROSS = 60, 40, 50       # routing costs, in pixels of extra length
-LINE_H = 16
-# per type: characters per line, width, minimum height, height added around the text
-SHAPES = {"start": (20, 160, 50, 20), "end": (20, 160, 50, 20), "task": (24, 180, 60, 24),
-          "subprocess": (22, 190, 60, 24), "decision": (16, 190, 90, 56),
-          "document": (22, 180, 80, 40), "multiple_documents": (20, 190, 90, 48),
-          "data_storage": (20, 190, 70, 32), "internal_storage": (20, 180, 80, 40),
-          "database": (20, 180, 90, 48), "manual_input": (22, 190, 80, 40),
-          "manual_operation": (18, 190, 80, 40), "input_output": (18, 190, 70, 32),
-          "display": (18, 190, 70, 32), "merge": (12, 160, 100, 64),
-          "connector": (8, 90, 90, 40), "predefined_process": (22, 190, 60, 24)}
+LINE_H, CHAR_W, FONT = 16, 7, 12  # draw.io's 12px font; characters estimated a little wide so text never runs out
+# per type: starting width, minimum height, widest the box may grow, and the part of the box that is not safe
+# for text because the outline cuts in there (fractions cut off left, right, top, bottom). The same margins
+# go into the draw.io style, so draw.io wraps the text inside the area the box was sized for.
+SHAPES = {"start": (160, 50, 280, (.12, .12, .08, .08)), "end": (160, 50, 280, (.12, .12, .08, .08)),
+          "task": (180, 60, 300, (0, 0, .05, .05)), "subprocess": (190, 60, 300, (.1, .1, .05, .05)),
+          "predefined_process": (190, 60, 300, (.14, .14, .05, .05)),
+          "decision": (190, 90, 380, (.25, .25, .25, .25)),  # the inner half of a diamond is safe for text
+          "document": (180, 80, 300, (.05, .05, .06, .22)), "multiple_documents": (190, 90, 300, (.06, .14, .16, .22)),
+          "data_storage": (190, 70, 300, (.14, .14, .06, .06)), "internal_storage": (180, 80, 300, (.1, .04, .2, .04)),
+          "database": (180, 90, 300, (.05, .05, .22, .12)), "manual_input": (190, 80, 300, (.05, .05, .3, .05)),
+          "manual_operation": (190, 80, 300, (.23, .23, .05, .05)), "input_output": (190, 70, 300, (.2, .2, .05, .05)),
+          "display": (190, 70, 300, (.2, .12, .05, .05)), "merge": (160, 100, 300, (.28, .28, .05, .45)),
+          "connector": (90, 90, 200, (.15, .15, .15, .15))}
+MAX_TALL = {"decision": 0.65}  # widen a diamond rather than let it grow taller than this times its width
 ONE_PER_SIDE = {"start", "end", "decision", "connector", "merge"}  # shapes whose sides only have one clean attachment point
 STYLES = {
     "start": "rounded=1;arcSize=50;html=1;whiteSpace=wrap;fillColor=#e0f2fe;strokeColor=#0369a1;",
@@ -56,7 +63,12 @@ _FLOWCHART_SHAPES = {
 }
 STYLES.update({kind: shape + "html=1;whiteSpace=wrap;fillColor=#ffffff;strokeColor=#334155;"
                for kind, shape in _FLOWCHART_SHAPES.items()})
-LANE = "swimlane;horizontal=0;startSize=32;html=1;whiteSpace=wrap;fillColor=#f8fafc;strokeColor=#94a3b8;fontStyle=1;"
+LANE = "swimlane;horizontal=0;startSize=32;html=1;whiteSpace=wrap;strokeColor=#94a3b8;fontStyle=1;"
+LANE_HUE0, GOLDEN_ANGLE = 215, 137.508  # lane colours: first hue (blue), then each next one this far round the wheel
+# The lane name is repeated along the top of each lane, so it is in view when zoomed in
+TAG_H, TAG_START, TAG_EVERY = 16, 400, 900  # strip height; no tag this close to the title strip; spacing
+TAG = "text;html=1;align=left;verticalAlign=middle;fontSize=11;fontStyle=1;textOpacity=75;" \
+      "movable=0;resizable=0;editable=0;connectable=0;"
 EDGE = "edgeStyle=none;rounded=1;html=1;endArrow=block;endFill=1;jumpStyle=arc;jumpSize=10;strokeColor=#334155;"
 LABEL = "labelBackgroundColor=#ffffff;fontSize=11;fontStyle=1;"
 REVIEW_BELOW = 0.7  # arrows the AI is less sure of than this are drawn dashed until a person reviews them
@@ -75,10 +87,27 @@ def _r(v: float) -> float:
 
 
 def _size(n) -> tuple[int, int]:
-    chars, w, min_h, extra = SHAPES[n.type]
-    lines = len(textwrap.wrap(n.label, chars)) or 1
-    h = max(min_h, lines * LINE_H + extra)
-    return (max(w, h), max(w, h)) if n.type == "connector" else (w, h)
+    """Smallest box (starting from the type's width) whose safe text area holds the wrapped label,
+    with the longest word on one line. Grows taller first, wider when a word or a diamond needs it."""
+    w0, min_h, w_max, (left, right, top, bottom) = SHAPES[n.type]
+    longest = max((len(word) for word in n.label.split()), default=0)
+    for w in range(w0, w_max + 1, 10):
+        chars = max(1, int((w * (1 - left - right) - 8) // CHAR_W))
+        if longest > chars and w < w_max:
+            continue
+        lines = len(textwrap.wrap(n.label, chars)) or 1
+        h = max(min_h, math.ceil((lines * LINE_H + 8) / (1 - top - bottom)))
+        if n.type == "connector":
+            w = h = max(w, h)
+        if h <= w * MAX_TALL.get(n.type, 99) or w >= w_max:
+            return w, h + h % 2
+    return w_max, min_h
+
+
+def _text_margins(kind: str, w: float, h: float) -> str:
+    left, right, top, bottom = SHAPES[kind][3]
+    return (f"fontSize={FONT};spacingLeft={round(w * left)};spacingRight={round(w * right)};"
+            f"spacingTop={round(h * top)};spacingBottom={round(h * bottom)};")
 
 
 def _label_width(s: str) -> int:
@@ -102,7 +131,7 @@ class _Layout:
             for s in range(self.nsub[l]):
                 self.row_order[(l, s)] = len(self.row_order)
         self.colgap = [COL_GAP] * (self.ncol + 1)
-        self.pads = {l: [PAD, PAD] for l in self.lanes}
+        self.pads = {l: [PAD + TAG_H, PAD] for l in self.lanes}  # room at the top for the repeated lane name
         self.rowgap = {l: [ROW_GAP] * (self.nsub[l] - 1) for l in self.lanes}
         self._choose_sides()
         for k, e in enumerate(self.edges):  # room for a label on an arrow that leaves sideways
@@ -639,25 +668,62 @@ def _label_offset(label: str, side: str, pts) -> tuple[float, float]:
     return (-(tw / 2 + 6) if turn == 1 else tw / 2 + 6), dy
 
 
+def _lane_colors(n: int) -> tuple[str, str, str]:
+    """Title strip, lane body and text colour for the n-th lane. Every lane gets its own hue (never repeated),
+    and lanes next to each other get hues far apart. Pale enough that boxes and arrows stay readable."""
+    hue = (LANE_HUE0 + n * GOLDEN_ANGLE) % 360 / 360
+
+    def hex_(lightness, saturation):
+        r, g, b = colorsys.hls_to_rgb(hue, lightness, saturation)
+        return f"#{round(r * 255):02x}{round(g * 255):02x}{round(b * 255):02x}"
+    return hex_(0.89, 0.75), hex_(0.975, 0.8), hex_(0.3, 0.65)
+
+
+def _tag_spots(lay, top: float, width: float, taken) -> list[float]:
+    """Where to repeat a lane's name along its top strip: about every TAG_EVERY px, only where no arrow or box is."""
+    y0, y1 = top + 2, top + TAG_H
+    spots, x, end = [], LANE_X + HEADER + TAG_START, LANE_X + lay.width - width - 8
+    while x <= end:
+        x0, x1 = x - 4, x + width + 4
+        clear = all(max(a[0], b[0]) < x0 or min(a[0], b[0]) > x1 or max(a[1], b[1]) < y0 or min(a[1], b[1]) > y1
+                    for a, b in taken)
+        clear = clear and all(bx + bw < x0 or bx > x1 or by + bh < y0 or by > y1 for bx, by, bw, bh in lay.box.values())
+        if clear:
+            spots.append(x)
+            x += TAG_EVERY
+        else:
+            x += 20
+    return spots
+
+
 def to_drawio_xml(d: Diagram) -> str:
     lay = _Layout(d)
     names = {l.id: l.name for l in d.lanes}
     confidence = {l.id: l.confidence for l in d.lanes}
     out = ['<mxCell id="0"/>', '<mxCell id="1" parent="0"/>']
-    for l in lay.lanes:
+    taken = [seg for k in range(len(lay.edges)) for seg in zip(lay._points(k), lay._points(k)[1:])]
+    for n, l in enumerate(lay.lanes):
         top, bottom = lay.lane_y[l]
+        head, body, ink = _lane_colors(n)
         out.append(
             f'<object label="{_e(names.get(l, l))}" id="lane_{_e(l)}" confidence="{confidence.get(l, 1.0)}">'
-            f'<mxCell style="{LANE}" vertex="1" parent="1">'
+            f'<mxCell style="{LANE}fillColor={head};swimlaneFillColor={body};fontColor={ink};" vertex="1" parent="1">'
             f'<mxGeometry x="{LANE_X}" y="{top}" width="{lay.width}" height="{bottom - top}" as="geometry"/></mxCell></object>'
         )
+        name = names.get(l, l)
+        for i, x in enumerate(_tag_spots(lay, top, _label_width(name), taken)):
+            out.append(
+                f'<mxCell id="tag_{_e(l)}_{i}" value="{_e(name)}" style="{TAG}fontColor={ink};" vertex="1" '
+                f'parent="lane_{_e(l)}"><mxGeometry x="{_r(x - LANE_X)}" y="2" width="{_label_width(name)}" '
+                f'height="{TAG_H - 2}" as="geometry"/></mxCell>'
+            )
     for n in d.nodes:
         x, y, w, h = lay.box[n.id]
         top = lay.lane_y[n.lane][0]
         out.append(
             f'<object label="{_e(n.label)}" id="{_e(n.id)}" node_type="{n.type}" source_ref="{_e(n.source_ref)}" '
             f'confidence="{n.confidence}">'
-            f'<mxCell style="{STYLES[n.type]}" vertex="1" parent="lane_{_e(n.lane)}">'
+            f'<mxCell style="{STYLES[n.type]}{_text_margins(n.type, w, h)}" vertex="1" parent="lane_{_e(n.lane)}">'
             f'<mxGeometry x="{_r(x - LANE_X)}" y="{_r(y - top)}" width="{w}" height="{h}" as="geometry"/></mxCell></object>'
         )
     for k, e in enumerate(lay.edges):
