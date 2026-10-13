@@ -38,59 +38,30 @@ export function InputPage({
 
   return (
     <div className="input-page">
-      {/* HERO */}
       <section className="hero">
-        <div className="hero-eyebrow">
-          UOB AI PRODUCTIVITY
-        </div>
-
         <h1>
-          Turn ideas into
+          Turn in-house documentation into
           <br />
-          <span className="accent">
-            editable diagrams.
-          </span>
+          <span className="accent">editable diagrams.</span>
         </h1>
 
         <p className="hero-copy">
-          Convert process descriptions, documents,
-          screenshots and images into structured
-          draw.io diagrams you can continue editing.
+          Convert process notes and documents into editable draw.io diagrams.
         </p>
       </section>
 
-      {/* TEXT */}
-      <section className="flow-section alt">
-        <div className="flow-inner">
-          <span className="section-number">
-            01 · DESCRIBE
-          </span>
-
-          <h2 className="section-title">
-            Start with your process.
-          </h2>
-
-          <p className="section-copy">
-            Tell us what happens, who is involved and
-            where decisions are made. Your notes do not
-            need to be perfectly formatted.
-          </p>
-
+      <section className="creation-section">
+        <div className="creation-inner">
           <div className="textarea-shell">
             <div className="textarea-head">
-              <label
-                className="field-label"
-                htmlFor="process-text"
-              >
+              <label className="field-label" htmlFor="process-text">
                 Process description
               </label>
 
               <button
                 type="button"
                 className="example-link"
-                onClick={() =>
-                  setText(SAMPLE_TEXT)
-                }
+                onClick={() => setText(SAMPLE_TEXT)}
               >
                 Use an example
               </button>
@@ -99,154 +70,71 @@ export function InputPage({
             <textarea
               id="process-text"
               value={text}
-              onChange={(e) =>
-                setText(e.target.value)
-              }
-              placeholder="For example: A customer submits a request. The service team reviews it and sends it to a manager for approval..."
+              onChange={(e) => setText(e.target.value)}
+              placeholder="Describe the process, the people involved, and any decisions or outcomes."
               rows={8}
             />
           </div>
-        </div>
-      </section>
 
-      {/* UPLOAD */}
-      <section className="flow-section">
-        <div className="flow-inner">
-          <span className="section-number">
-            02 · UPLOAD
-          </span>
+          <div className="upload-area">
+            <h2>Or upload a document</h2>
 
-          <h2 className="section-title">
-            Or show us what you already have.
-          </h2>
-
-          <p className="section-copy">
-            Upload a document, screenshot or image and
-            we will interpret the process structure for
-            you.
-          </p>
-
-          <label
-            className={`drop${
-              over ? " over" : ""
-            }`}
-            onDragOver={(e) => {
-              e.preventDefault();
-              setOver(true);
-            }}
-            onDragLeave={() =>
-              setOver(false)
-            }
-            onDrop={onDrop}
-          >
-            <input
-              type="file"
-              accept=".pdf,.docx,.txt,.md,.png,.jpg,.jpeg"
-              onChange={(e) =>
-                setFile(
-                  e.target.files?.[0] ??
-                    null
-                )
-              }
-            />
-
-            <div className="upload-icon">
-              ↑
-            </div>
-
-            {file ? (
-              <>
-                <div className="upload-title">
-                  {file.name}
-                </div>
-
-                <p className="upload-copy">
-                  {Math.max(
-                    1,
-                    Math.round(
-                      file.size / 1024
-                    )
-                  )}{" "}
-                  KB
-                </p>
-
-                <span className="upload-types">
-                  READY TO USE
-                </span>
-              </>
-            ) : (
-              <>
-                <div className="upload-title">
-                  Upload a file
-                </div>
-
-                <p className="upload-copy">
-                  Drag and drop here, or
-                  click to browse
-                </p>
-
-                <span className="upload-types">
-                  PDF · DOCX · TXT · MD · PNG · JPG
-                </span>
-              </>
-            )}
-          </label>
-
-          {file && (
-            <button
-              type="button"
-              className="remove-file"
-              onClick={() =>
-                setFile(null)
-              }
+            <label
+              className={`drop${over ? " over" : ""}`}
+              onDragOver={(e) => {
+                e.preventDefault();
+                setOver(true);
+              }}
+              onDragLeave={() => setOver(false)}
+              onDrop={onDrop}
             >
-              Remove file
-            </button>
-          )}
-        </div>
-      </section>
+              <input
+                type="file"
+                accept=".pdf,.docx,.txt,.md,.png,.jpg,.jpeg"
+                onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+              />
 
-      {/* GENERATE */}
-      <section className="flow-section generate-section">
-        <div className="flow-inner">
-          <span className="section-number">
-            03 · GENERATE
-          </span>
+              <div className="upload-icon">↑</div>
 
-          <h2 className="section-title">
-            Ready when you are.
-          </h2>
+              {file ? (
+                <>
+                  <div className="upload-title">{file.name}</div>
+                  <p className="upload-copy">
+                    {Math.max(1, Math.round(file.size / 1024))} KB
+                  </p>
+                  <span className="upload-types">READY TO USE</span>
+                </>
+              ) : (
+                <>
+                  <div className="upload-title">Choose a file or drop it here</div>
+                  <p className="upload-copy">
+                    PDF · DOCX · TXT · MD · PNG · JPG
+                  </p>
+                </>
+              )}
+            </label>
 
-          <p className="section-copy">
-            We will interpret your content, identify
-            the important process steps and build an
-            editable draw.io diagram.
-          </p>
+            {file && (
+              <button
+                type="button"
+                className="remove-file"
+                onClick={() => setFile(null)}
+              >
+                Remove file
+              </button>
+            )}
+          </div>
 
-          <div className="generate-wrap">
+          <div className="create-actions">
             <button
               type="button"
               className="primary generate-button"
               disabled={!canSubmit}
-              onClick={() =>
-                onGenerate({
-                  text,
-                  file,
-                })
-              }
+              onClick={() => onGenerate({ text, file })}
             >
               Generate diagram
-              <span aria-hidden="true">
-                →
-              </span>
+              <span aria-hidden="true">→</span>
             </button>
-
-            {!canSubmit && (
-              <span className="generate-hint">
-                Add a description or
-                upload a file to continue.
-              </span>
-            )}
           </div>
         </div>
       </section>
@@ -277,7 +165,7 @@ export function ProgressPage({
         {!error && (
           <div className="progress-logo-wrap">
             <img
-              src="/uob-logo.png"
+              src="/UOB_Logo_(2022).svg"
               alt="UOB"
               className="progress-logo"
             />
@@ -609,6 +497,17 @@ function AmendPanel({
         >
           {busy ? "Applying change..." : "Apply change"}
         </button>
+
+        {busy && (
+          <div
+            className="amend-loading-line"
+            role="progressbar"
+            aria-label="Updating diagram"
+            aria-valuetext="The AI is updating your diagram"
+          >
+            <span />
+          </div>
+        )}
 
         <p className="amend-hint">
           Press Ctrl/⌘ + Enter to apply. Edits you made in the editor are kept, but the layout is redrawn.
