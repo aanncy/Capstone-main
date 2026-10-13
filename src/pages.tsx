@@ -1,10 +1,12 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { DragEvent } from "react";
 
 import DrawioEditor from "./DrawioEditor";
 import type { EditorHandle } from "./DrawioEditor";
 
-import { STAGES } from "./api";
+import { STAGES, amendDiagram } from "./api";
+import { findFlags, markReviewed } from "./review";
+import type { Flag } from "./review";
 import type { GenerateInput, Stage } from "./api";
 
 import { SAMPLE_TEXT } from "./sampleDiagram";
@@ -38,59 +40,30 @@ export function InputPage({
 
   return (
     <div className="input-page">
-      {/* HERO */}
       <section className="hero">
-        <div className="hero-eyebrow">
-          UOB AI PRODUCTIVITY
-        </div>
-
         <h1>
-          Turn ideas into
+          Turn in-house documentation into
           <br />
-          <span className="accent">
-            editable diagrams.
-          </span>
+          <span className="accent">editable diagrams.</span>
         </h1>
 
         <p className="hero-copy">
-          Convert process descriptions, documents,
-          screenshots and images into structured
-          draw.io diagrams you can continue editing.
+          Convert process notes and documents into editable draw.io diagrams.
         </p>
       </section>
 
-      {/* TEXT */}
-      <section className="flow-section alt">
-        <div className="flow-inner">
-          <span className="section-number">
-            01 · DESCRIBE
-          </span>
-
-          <h2 className="section-title">
-            Start with your process.
-          </h2>
-
-          <p className="section-copy">
-            Tell us what happens, who is involved and
-            where decisions are made. Your notes do not
-            need to be perfectly formatted.
-          </p>
-
+      <section className="creation-section">
+        <div className="creation-inner">
           <div className="textarea-shell">
             <div className="textarea-head">
-              <label
-                className="field-label"
-                htmlFor="process-text"
-              >
+              <label className="field-label" htmlFor="process-text">
                 Process description
               </label>
 
               <button
                 type="button"
                 className="example-link"
-                onClick={() =>
-                  setText(SAMPLE_TEXT)
-                }
+                onClick={() => setText(SAMPLE_TEXT)}
               >
                 Use an example
               </button>
@@ -99,154 +72,71 @@ export function InputPage({
             <textarea
               id="process-text"
               value={text}
-              onChange={(e) =>
-                setText(e.target.value)
-              }
-              placeholder="For example: A customer submits a request. The service team reviews it and sends it to a manager for approval..."
+              onChange={(e) => setText(e.target.value)}
+              placeholder="Describe the process, the people involved, and any decisions or outcomes."
               rows={8}
             />
           </div>
-        </div>
-      </section>
 
-      {/* UPLOAD */}
-      <section className="flow-section">
-        <div className="flow-inner">
-          <span className="section-number">
-            02 · UPLOAD
-          </span>
+          <div className="upload-area">
+            <h2>Or upload a document</h2>
 
-          <h2 className="section-title">
-            Or show us what you already have.
-          </h2>
-
-          <p className="section-copy">
-            Upload a document, screenshot or image and
-            we will interpret the process structure for
-            you.
-          </p>
-
-          <label
-            className={`drop${
-              over ? " over" : ""
-            }`}
-            onDragOver={(e) => {
-              e.preventDefault();
-              setOver(true);
-            }}
-            onDragLeave={() =>
-              setOver(false)
-            }
-            onDrop={onDrop}
-          >
-            <input
-              type="file"
-              accept=".pdf,.docx,.txt,.md,.png,.jpg,.jpeg"
-              onChange={(e) =>
-                setFile(
-                  e.target.files?.[0] ??
-                    null
-                )
-              }
-            />
-
-            <div className="upload-icon">
-              ↑
-            </div>
-
-            {file ? (
-              <>
-                <div className="upload-title">
-                  {file.name}
-                </div>
-
-                <p className="upload-copy">
-                  {Math.max(
-                    1,
-                    Math.round(
-                      file.size / 1024
-                    )
-                  )}{" "}
-                  KB
-                </p>
-
-                <span className="upload-types">
-                  READY TO USE
-                </span>
-              </>
-            ) : (
-              <>
-                <div className="upload-title">
-                  Upload a file
-                </div>
-
-                <p className="upload-copy">
-                  Drag and drop here, or
-                  click to browse
-                </p>
-
-                <span className="upload-types">
-                  PDF · DOCX · TXT · MD · PNG · JPG
-                </span>
-              </>
-            )}
-          </label>
-
-          {file && (
-            <button
-              type="button"
-              className="remove-file"
-              onClick={() =>
-                setFile(null)
-              }
+            <label
+              className={`drop${over ? " over" : ""}`}
+              onDragOver={(e) => {
+                e.preventDefault();
+                setOver(true);
+              }}
+              onDragLeave={() => setOver(false)}
+              onDrop={onDrop}
             >
-              Remove file
-            </button>
-          )}
-        </div>
-      </section>
+              <input
+                type="file"
+                accept=".pdf,.docx,.txt,.md,.png,.jpg,.jpeg"
+                onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+              />
 
-      {/* GENERATE */}
-      <section className="flow-section generate-section">
-        <div className="flow-inner">
-          <span className="section-number">
-            03 · GENERATE
-          </span>
+              <div className="upload-icon">↑</div>
 
-          <h2 className="section-title">
-            Ready when you are.
-          </h2>
+              {file ? (
+                <>
+                  <div className="upload-title">{file.name}</div>
+                  <p className="upload-copy">
+                    {Math.max(1, Math.round(file.size / 1024))} KB
+                  </p>
+                  <span className="upload-types">READY TO USE</span>
+                </>
+              ) : (
+                <>
+                  <div className="upload-title">Choose a file or drop it here</div>
+                  <p className="upload-copy">
+                    PDF · DOCX · TXT · MD · PNG · JPG
+                  </p>
+                </>
+              )}
+            </label>
 
-          <p className="section-copy">
-            We will interpret your content, identify
-            the important process steps and build an
-            editable draw.io diagram.
-          </p>
+            {file && (
+              <button
+                type="button"
+                className="remove-file"
+                onClick={() => setFile(null)}
+              >
+                Remove file
+              </button>
+            )}
+          </div>
 
-          <div className="generate-wrap">
+          <div className="create-actions">
             <button
               type="button"
               className="primary generate-button"
               disabled={!canSubmit}
-              onClick={() =>
-                onGenerate({
-                  text,
-                  file,
-                })
-              }
+              onClick={() => onGenerate({ text, file })}
             >
               Generate diagram
-              <span aria-hidden="true">
-                →
-              </span>
+              <span aria-hidden="true">→</span>
             </button>
-
-            {!canSubmit && (
-              <span className="generate-hint">
-                Add a description or
-                upload a file to continue.
-              </span>
-            )}
           </div>
         </div>
       </section>
@@ -277,7 +167,7 @@ export function ProgressPage({
         {!error && (
           <div className="progress-logo-wrap">
             <img
-              src="/uob-logo.png"
+              src="/UOB_Logo_(2022).svg"
               alt="UOB"
               className="progress-logo"
             />
@@ -396,6 +286,11 @@ export function EditorPage({
   const editor =
     useRef<EditorHandle>(null);
 
+  // what is loaded into draw.io (changes when an amendment comes back)
+  const [shown, setShown] =
+    useState(xml);
+
+  // what draw.io last reported, including the user's own edits
   const [latest, setLatest] =
     useState(xml);
 
@@ -403,6 +298,33 @@ export function EditorPage({
     useCallback((x: string) => {
       setLatest(x);
     }, []);
+
+  // low-confidence steps and lanes, kept in step with the editor
+  const [flags, setFlags] =
+    useState<Flag[]>([]);
+
+  useEffect(() => {
+    let current = true;
+
+    findFlags(latest).then((f) => {
+      if (current) setFlags(f);
+    });
+
+    return () => {
+      current = false;
+    };
+  }, [latest]);
+
+  const clearFlags = async (ids: string[]) => {
+    const reviewed =
+      await markReviewed(
+        latest,
+        ids
+      );
+
+    setShown(reviewed);
+    setLatest(reviewed);
+  };
 
   const saveFile = () => {
     const url =
@@ -457,17 +379,311 @@ export function EditorPage({
           </button>
         </div>
 
-        {/* IMPORTANT:
-            Do not wrap DrawioEditor in .editor-frame.
-            The DrawioEditor component needs to receive
-            the available flex height directly.
-        */}
-        <DrawioEditor
-          ref={editor}
-          xml={xml}
-          onChange={handleChange}
-        />
+        <div className="editor-body">
+          {/* IMPORTANT:
+              Do not wrap DrawioEditor in .editor-frame.
+              The DrawioEditor component needs to receive
+              the available flex height directly.
+          */}
+          <DrawioEditor
+            ref={editor}
+            xml={shown}
+            onChange={handleChange}
+          />
+
+          <AmendPanel
+            flags={flags}
+            onClearFlags={clearFlags}
+            onApply={async (instruction) => {
+              const result =
+                await amendDiagram(
+                  latest,
+                  instruction
+                );
+
+              setShown(result.xml);
+              setLatest(result.xml);
+            }}
+          />
+        </div>
       </div>
     </div>
+  );
+}
+
+/**
+ * Collapsible side panel: the user describes a change in plain words,
+ * the AI applies it, and the new diagram replaces the one in the editor.
+ * Starts open.
+ */
+function AmendPanel({
+  flags,
+  onClearFlags,
+  onApply,
+}: {
+  flags: Flag[];
+  onClearFlags: (ids: string[]) => Promise<void>;
+  onApply: (instruction: string) => Promise<void>;
+}) {
+  const [open, setOpen] =
+    useState(true);
+
+  const [text, setText] =
+    useState("");
+
+  const [busy, setBusy] =
+    useState(false);
+
+  const [error, setError] =
+    useState<string | null>(null);
+
+  const [done, setDone] =
+    useState<string | null>(null);
+
+  const [clearing, setClearing] =
+    useState(false);
+
+  const clear = async (ids: string[]) => {
+    if (clearing || busy || ids.length === 0) return;
+
+    setClearing(true);
+    setError(null);
+
+    try {
+      await onClearFlags(ids);
+    } catch (e) {
+      setError(
+        e instanceof Error
+          ? e.message
+          : "Could not mark the items as reviewed."
+      );
+    } finally {
+      setClearing(false);
+    }
+  };
+
+  const apply = async () => {
+    const instruction = text.trim();
+
+    if (!instruction || busy) return;
+
+    setBusy(true);
+    setError(null);
+    setDone(null);
+
+    try {
+      await onApply(instruction);
+
+      setDone(instruction);
+      setText("");
+    } catch (e) {
+      setError(
+        e instanceof Error
+          ? e.message
+          : "Something went wrong while changing your diagram."
+      );
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (!open) {
+    return (
+      <aside className="amend-panel collapsed">
+        <button
+          type="button"
+          className="amend-toggle"
+          onClick={() => setOpen(true)}
+          aria-label="Open the amend diagram panel"
+          aria-expanded={false}
+        >
+          ‹
+        </button>
+
+        <span className="amend-collapsed-label">
+          Amend diagram
+        </span>
+      </aside>
+    );
+  }
+
+  return (
+    <aside className="amend-panel">
+      <div className="amend-head">
+        <h2>Amend diagram</h2>
+
+        <button
+          type="button"
+          className="amend-toggle"
+          onClick={() => setOpen(false)}
+          aria-label="Collapse the amend diagram panel"
+          aria-expanded={true}
+        >
+          ›
+        </button>
+      </div>
+
+      <div className="amend-body">
+        <ReviewList
+          flags={flags}
+          disabled={busy || clearing}
+          onClear={clear}
+        />
+
+        <label
+          htmlFor="amend-text"
+          className="amend-label"
+        >
+          Describe the change
+        </label>
+
+        <textarea
+          id="amend-text"
+          className="amend-text"
+          placeholder="For example: Add a compliance review after approval."
+          value={text}
+          disabled={busy}
+          onChange={(e) => setText(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+              e.preventDefault();
+              apply();
+            }
+          }}
+        />
+
+        <button
+          type="button"
+          className="primary amend-apply"
+          disabled={!text.trim() || busy}
+          onClick={apply}
+        >
+          {busy ? "Applying change..." : "Apply change"}
+        </button>
+
+        {busy && (
+          <div
+            className="amend-loading-line"
+            role="progressbar"
+            aria-label="Updating diagram"
+            aria-valuetext="The AI is updating your diagram"
+          >
+            <span />
+          </div>
+        )}
+
+        <p className="amend-hint">
+          Press Ctrl/⌘ + Enter to apply. Edits you made in the editor are kept, but the layout is redrawn.
+        </p>
+
+        {busy && (
+          <p className="amend-status" role="status">
+            The AI is updating your diagram. This may take a few minutes.
+          </p>
+        )}
+
+        {done && !busy && (
+          <p className="amend-status ok" role="status">
+            Applied: “{done}”
+          </p>
+        )}
+
+        {error && (
+          <p className="amend-status err" role="alert">
+            {error}
+          </p>
+        )}
+      </div>
+    </aside>
+  );
+}
+
+/**
+ * Steps, lanes and connections the AI was unsure about (confidence under 0.7):
+ * yellow from 0.4 to under 0.7, red under 0.4.
+ * The tick on an item marks just that one as reviewed; "Mark all as reviewed" does every item.
+ * Reviewed items get confidence 1 and leave the list.
+ */
+function ReviewList({
+  flags,
+  disabled,
+  onClear,
+}: {
+  flags: Flag[];
+  disabled: boolean;
+  onClear: (ids: string[]) => void;
+}) {
+  const red =
+    flags.filter((f) => f.level === "red").length;
+
+  return (
+    <section
+      className="review"
+      aria-labelledby="review-title"
+    >
+      <div className="review-head">
+        <span
+          id="review-title"
+          className="amend-label"
+        >
+          Needs review
+        </span>
+
+        {flags.length > 0 && (
+          <span className="review-count">
+            {flags.length}
+            {red > 0 && ` (${red} low)`}
+          </span>
+        )}
+      </div>
+
+      {flags.length === 0 ? (
+        <p className="review-empty">
+          No low-confidence steps, lanes or connections.
+        </p>
+      ) : (
+        <>
+          <ul className="review-list">
+            {flags.map((f) => (
+              <li
+                key={f.id}
+                className={`review-item ${f.level}`}
+                title={`${f.kind} ${f.id}: confidence ${f.confidence}`}
+              >
+                <span className="review-text">
+                  <span className="review-label">
+                    {f.label}
+                  </span>
+
+                  <span className="review-meta">
+                    {f.kind} · {Math.round(f.confidence * 100)}%
+                  </span>
+                </span>
+
+                <button
+                  type="button"
+                  className="review-tick"
+                  disabled={disabled}
+                  onClick={() => onClear([f.id])}
+                  aria-label={`Mark ${f.kind.toLowerCase()} "${f.label}" as reviewed`}
+                  title="Mark as reviewed"
+                >
+                  ✓
+                </button>
+              </li>
+            ))}
+          </ul>
+
+          <button
+            type="button"
+            className="secondary review-clear"
+            disabled={disabled}
+            onClick={() => onClear(flags.map((f) => f.id))}
+          >
+            Mark all as reviewed
+          </button>
+        </>
+      )}
+    </section>
   );
 }

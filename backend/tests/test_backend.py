@@ -1,3 +1,4 @@
+import re
 import asyncio
 import json
 import xml.etree.ElementTree as ET
@@ -38,10 +39,11 @@ def test_all_node_symbols_convert_with_connected_geometry(kind):
     data["nodes"][1]["type"] = kind
     root = ET.fromstring(to_drawio_xml(Diagram.model_validate(data)))
     cell = root.find(".//object[@id='n2']/mxCell")
-    assert cell is not None and cell.get("style") == STYLES[kind]
+    # the type's own style, plus margins that keep the text inside the outline
+    assert cell is not None and cell.get("style").startswith(STYLES[kind]) and "spacingLeft=" in cell.get("style")
     geometry = cell.find("mxGeometry")
-    assert float(geometry.get("width")) >= SHAPES[kind][1]
-    assert float(geometry.get("height")) >= SHAPES[kind][2]
+    assert float(geometry.get("width")) >= SHAPES[kind][0]
+    assert float(geometry.get("height")) >= SHAPES[kind][1]
     if kind == "connector":
         assert geometry.get("width") == geometry.get("height")
     assert root.find(".//mxCell[@source='n1'][@target='n2']") is not None
@@ -89,9 +91,17 @@ def test_gives_up_after_retries():
 
 def test_xml_is_well_formed_and_keeps_custom_fields():
     from app.schema import Diagram
-    root = ET.fromstring(to_drawio_xml(Diagram.model_validate(GOOD)))
+    lanes = json.loads(json.dumps(GOOD))
+    lanes["lanes"][1]["confidence"] = 0.35
+    lanes["edges"][3]["confidence"] = 0.5
+    root = ET.fromstring(to_drawio_xml(Diagram.model_validate(lanes)))
     objs = {o.get("id"): o for o in root.iter("object")}
-    assert set(objs) == {"n1", "n2", "n3", "n4"} and objs["n3"].get("confidence") == "0.6"
+    assert set(objs) == {"n1", "n2", "n3", "n4", "lane_maker", "lane_approver", "e1", "e2", "e3", "e4"}
+    assert objs["n3"].get("confidence") == "0.6" and objs["lane_approver"].get("confidence") == "0.35"
+    # the unsure arrow (n3 -> n2, "No") is dashed, the others are solid
+    assert objs["e4"].get("confidence") == "0.5" and objs["e4"].get("label") == "No"
+    assert "dashed=1" in objs["e4"].find("mxCell").get("style")
+    assert "dashed=1" not in objs["e1"].find("mxCell").get("style")
     ids = [e.get("id") for e in root.iter() if e.get("id")]
     assert len(ids) == len(set(ids))
 
@@ -193,3 +203,106 @@ def test_gemini_thoughts_are_kept_out_of_the_answer(monkeypatch):
     assert asyncio.run(chain.complete("s", "u")) == '{"title": "x"}'
     assert chain.thoughts == "Lanes: Maker, Approver."
     assert sent["generationConfig"]["thinkingConfig"] == {"includeThoughts": True}
+
+
+def test_drawio_xml_reads_back_into_the_same_diagram():
+    import base64, zlib
+    from urllib.parse import quote
+    from app.read_drawio import from_drawio_xml
+    from app.schema import Diagram
+    d = Diagram.model_validate(GOOD)
+    xml = to_drawio_xml(d)
+    assert from_drawio_xml(xml).model_dump() == d.model_dump()
+    # draw.io may save the page compressed
+    model = re.search(r"<mxGraphModel.*</mxGraphModel>", xml).group(0)
+    deflate = zlib.compressobj(9, zlib.DEFLATED, -15)
+    packed = base64.b64encode(deflate.compress(quote(model).encode()) + deflate.flush()).decode()
+    compressed = f'<mxfile><diagram id="d1" name="Payment request">{packed}</diagram></mxfile>'
+    assert from_drawio_xml(compressed).model_dump() == d.model_dump()
+
+
+def test_shapes_drawn_by_hand_are_read_with_a_type_and_lane():
+    from app.read_drawio import from_drawio_xml
+    from app.schema import Diagram
+    xml = to_drawio_xml(Diagram.model_validate(GOOD)).replace("</root>", (
+        '<mxCell id="x1" value="Call &lt;b&gt;customer&lt;/b&gt;" style="rhombus;whiteSpace=wrap;" vertex="1" parent="lane_maker">'
+        '<mxGeometry x="10" y="10" width="80" height="80" as="geometry"/></mxCell>'
+        '<mxCell id="x2" value="" style="endArrow=classic;" edge="1" parent="1" source="n2" target="x1">'
+        '<mxGeometry relative="1" as="geometry"/></mxCell>'
+        '<mxCell id="x3" value="Yes" style="edgeLabel;" vertex="1" connectable="0" parent="x2">'
+        '<mxGeometry relative="1" as="geometry"/></mxCell></root>'))
+    d = from_drawio_xml(xml)
+    x1 = next(n for n in d.nodes if n.id == "x1")
+    assert (x1.type, x1.lane, x1.label, x1.source_ref) == ("decision", "maker", "Call customer", "Added in the editor")
+    assert any(e.source == "n2" and e.target == "x1" and e.label == "Yes" for e in d.edges)
+    assert len(d.nodes) == 5  # the arrow's label cell is not a step
+
+
+def test_amend_sends_the_current_diagram_and_returns_the_new_one():
+    changed = json.loads(json.dumps(GOOD))
+    changed["nodes"].insert(2, {"id": "n5", "type": "task", "label": "Check compliance", "lane": "approver"})
+    changed["edges"][1] = {"from": "n2", "to": "n5", "label": ""}
+    changed["edges"].append({"from": "n5", "to": "n3", "label": ""})
+    fake = Fake(json.dumps(changed))
+    seen = []
+    real = fake.complete
+
+    async def spy(system, user, attachments=()):
+        seen.append((system, user))
+        return await real(system, user, attachments)
+    fake.complete = spy
+    app.dependency_overrides[get_provider] = lambda: fake
+    from app.schema import Diagram
+    c = TestClient(app)
+    r = c.post("/api/amend", json={"xml": to_drawio_xml(Diagram.model_validate(GOOD)), "instruction": "Add a compliance check"})
+    assert r.status_code == 200 and 'id="n5"' in r.json()["xml"]
+    system, user = seen[0]
+    assert "Amending an existing diagram" in system
+    assert "Add a compliance check" in user and '"Prepare documents"' in user
+    assert c.post("/api/amend", json={"xml": "<mxfile/>", "instruction": "x"}).status_code == 400
+    assert c.post("/api/amend", json={"xml": "x", "instruction": " "}).status_code == 400
+    app.dependency_overrides.clear()
+
+
+def test_lanes_are_tinted_and_named_along_their_length():
+    from app.schema import Diagram
+    long = json.loads(json.dumps(GOOD))  # a long flow, so the lane name has to repeat
+    long["nodes"] = [GOOD["nodes"][0]] + [
+        {"id": f"t{i}", "type": "task", "label": f"Step {i}", "lane": "maker" if i % 2 else "approver"} for i in range(12)
+    ] + [GOOD["nodes"][3]]
+    ids = [n["id"] for n in long["nodes"]]
+    long["edges"] = [{"from": a, "to": b} for a, b in zip(ids, ids[1:])]
+    root = ET.fromstring(to_drawio_xml(Diagram.model_validate(long)))
+    cells = {c.get("id"): c for c in root.iter("mxCell") if c.get("id")}
+    lanes = {o.get("id"): o.find("mxCell").get("style") for o in root.iter("object") if o.get("id", "").startswith("lane_")}
+    assert len({s.split("swimlaneFillColor=")[1].split(";")[0] for s in lanes.values()}) == 2
+    tags = [c for c in cells.values() if c.get("id").startswith("tag_maker_")]
+    assert len(tags) >= 2 and all(t.get("value") == "Maker" for t in tags)
+    steps = [o.find("mxCell") for o in root.iter("object") if o.get("node_type")]
+    for t in tags:  # a repeated name never sits on a step
+        g = t.find("mxGeometry")
+        tx, tw = float(g.get("x")), float(g.get("width"))
+        for s in steps:
+            sg = s.find("mxGeometry")
+            if s.get("parent") == "lane_maker":
+                sx, sy = float(sg.get("x")), float(sg.get("y"))
+                assert sx + float(sg.get("width")) < tx or sx > tx + tw or sy > float(g.get("y")) + float(g.get("height"))
+
+
+
+def test_labels_fit_inside_their_shape():
+    import textwrap
+    from app.convert import CHAR_W, LINE_H, SHAPES, _size
+    from app.schema import Node
+    labels = ["Approve", "Perform maker-checker/verification review of the instruction",
+              "Is the high-risk data condition detected for this outward payment?",
+              "Supercalifragilisticexpialidocious verification"]
+    for kind in get_args(NodeType):
+        for label in labels:
+            w, h = _size(Node(id="x", type=kind, label=label, lane="l"))
+            left, right, top, bottom = SHAPES[kind][3]
+            chars = int((w * (1 - left - right) - 8) // CHAR_W)
+            lines = textwrap.wrap(label, chars)
+            assert len(lines) * LINE_H + 8 <= h * (1 - top - bottom) + 1, (kind, label, w, h)
+            if w < SHAPES[kind][2]:  # below the widest allowed, a long word is never split
+                assert all(len(word) <= chars for word in label.split()), (kind, label, w)

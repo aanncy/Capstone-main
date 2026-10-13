@@ -49,7 +49,7 @@ export default function App() {
         <div className="topbar-inner">
           <div className="brand-wrap">
             <img
-              src="/uob-logo.png"
+              src="/UOB_Logo_(2022).svg"
               alt="UOB"
               className="brand-logo"
             />
@@ -60,12 +60,11 @@ export default function App() {
             />
 
             <span className="brand-subtitle">
-              AI Diagram Builder
+              FLOW
             </span>
           </div>
 
           <span className="topbar-note">
-            RIGHT BY YOU
           </span>
         </div>
       </header>

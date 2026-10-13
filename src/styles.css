@@ -238,13 +238,13 @@ h3 {
 .hero {
   width: 100%;
 
-  max-width: 1050px;
+  max-width: 980px;
 
   margin: 0 auto;
 
   padding:
-    128px 24px
-    112px;
+    28px 24px
+    18px;
 
   text-align: center;
 }
@@ -283,19 +283,19 @@ h3 {
 }
 
 .hero h1 {
-  max-width: 950px;
+  max-width: 820px;
 
   margin:
-    0 auto 30px;
+    0 auto 12px;
 
   color:
     var(--uob-blue-dark);
 
   font-size:
     clamp(
-      3.1rem,
-      6.7vw,
-      5.8rem
+      2rem,
+      4vw,
+      3.25rem
     );
 
   font-weight: 650;
@@ -322,47 +322,128 @@ h3 {
 
   font-size:
     clamp(
-      1.05rem,
-      1.8vw,
-      1.28rem
+      0.92rem,
+      1.2vw,
+      1.02rem
     );
 
   line-height: 1.6;
 }
 
-/* ======================================================
-   SECTIONS
-====================================================== */
-
-.flow-section {
-  padding:
-    110px 24px;
-
-  border-top:
-    1px solid
-    rgba(16, 24, 40, 0.055);
+.creation-section {
+  padding: 0 24px 28px;
 }
 
-.flow-section.alt {
-  background:
-    #ffffff;
-}
-
-.generate-section {
-  background:
-    linear-gradient(
-      180deg,
-      #ffffff 0%,
-      #f4f9ff 100%
-    );
-}
-
-.flow-inner {
+.creation-inner {
   width: 100%;
 
-  max-width: 780px;
+  max-width: 1080px;
 
   margin: 0 auto;
+
+  display: grid;
+
+  grid-template-columns: minmax(0, 1.2fr) minmax(280px, 0.8fr);
+
+  align-items: stretch;
+
+  gap: 16px;
+}
+
+.creation-inner .textarea-shell {
+  min-height: 280px;
+}
+
+.upload-area h2 {
+  margin: 0 0 10px;
+
+  color: var(--ink);
+
+  font-size: 0.95rem;
+
+  font-weight: 650;
+}
+
+.upload-area {
+  min-width: 0;
+
+  padding: 16px;
+
+  display: flex;
+
+  flex-direction: column;
+
+  background: var(--surface);
+
+  border: 1px solid var(--line);
+
+  border-radius: 18px;
+
+  box-shadow: var(--shadow-small);
+}
+
+.upload-area .drop {
+  flex: 1;
+
+  min-height: 210px;
+
+  padding: 20px;
+}
+
+.upload-area .upload-icon {
+  width: 44px;
+
+  height: 44px;
+
+  margin-bottom: 12px;
+}
+
+.creation-inner .textarea-head {
+  min-height: 52px;
+
+  padding: 0 16px;
+}
+
+.creation-inner textarea {
+  min-height: 220px;
+
+  max-height: none;
+
+  padding: 16px;
+}
+
+.create-actions {
+  display: flex;
+
+  grid-column: 1 / -1;
+
+  align-items: center;
+
+  justify-content: flex-end;
+
+  gap: 14px;
+}
+
+@media (
+  min-width: 761px
+) {
+  .input-page {
+    min-height: calc(100vh - 88px);
+
+    display: flex;
+
+    flex-direction: column;
+  }
+
+  .creation-section {
+    flex: 1;
+
+    display: flex;
+  }
+
+  .creation-inner {
+    grid-template-rows: minmax(320px, 1fr) auto;
+  }
 }
 
 .section-number {
@@ -638,8 +719,14 @@ textarea::placeholder {
 }
 
 .upload-title {
+  width: 100%;
+
+  min-width: 0;
+
   margin-bottom:
     6px;
+
+  overflow-wrap: anywhere;
 
   color:
     var(--ink);
@@ -1223,6 +1310,434 @@ textarea::placeholder {
 }
 
 /* ======================================================
+   AMEND PANEL
+====================================================== */
+
+.editor-body {
+  flex: 1;
+
+  min-height: 0;
+
+  display: flex;
+}
+
+.amend-panel {
+  width: 300px;
+
+  flex-shrink: 0;
+
+  display: flex;
+
+  flex-direction: column;
+
+  background:
+    var(--surface);
+
+  border-left:
+    1px solid
+    var(--line);
+}
+
+.amend-panel.collapsed {
+  width: 44px;
+
+  align-items: center;
+
+  padding-top: 12px;
+
+  gap: 16px;
+}
+
+.amend-head {
+  padding:
+    16px 12px 16px 20px;
+
+  display: flex;
+
+  align-items: center;
+
+  justify-content: space-between;
+
+  border-bottom:
+    1px solid
+    var(--line);
+}
+
+.amend-head h2 {
+  margin: 0;
+
+  font-size: 1rem;
+
+  font-weight: 650;
+
+  color:
+    var(--ink);
+}
+
+.amend-toggle {
+  width: 32px;
+
+  height: 32px;
+
+  border: 0;
+
+  border-radius: 8px;
+
+  background:
+    transparent;
+
+  color:
+    var(--ink);
+
+  font-size: 1.4rem;
+
+  line-height: 1;
+}
+
+.amend-toggle:hover {
+  background:
+    var(--uob-blue-soft);
+
+  color:
+    var(--uob-blue);
+}
+
+.amend-collapsed-label {
+  writing-mode:
+    vertical-rl;
+
+  font-size: 0.85rem;
+
+  font-weight: 650;
+
+  color:
+    var(--muted);
+}
+
+.amend-body {
+  padding: 20px;
+
+  display: flex;
+
+  flex-direction: column;
+
+  gap: 12px;
+
+  overflow-y: auto;
+}
+
+.review {
+  display: flex;
+
+  flex-direction: column;
+
+  gap: 8px;
+
+  padding-bottom: 16px;
+
+  border-bottom:
+    1px solid
+    var(--line);
+}
+
+.review-head {
+  display: flex;
+
+  align-items: center;
+
+  justify-content: space-between;
+}
+
+.review-count {
+  font-size: 0.8rem;
+
+  font-weight: 650;
+
+  color:
+    var(--muted);
+}
+
+.review-empty {
+  margin: 0;
+
+  font-size: 0.85rem;
+
+  color:
+    var(--muted);
+}
+
+.review-list {
+  margin: 0;
+
+  padding: 0;
+
+  list-style: none;
+
+  max-height: 220px;
+
+  overflow-y: auto;
+
+  display: flex;
+
+  flex-direction: column;
+
+  gap: 6px;
+}
+
+.review-item {
+  padding: 8px 6px 8px 10px;
+
+  display: flex;
+
+  align-items: center;
+
+  gap: 8px;
+
+  border-radius: 8px;
+
+  border-left: 4px solid;
+
+  font-size: 0.85rem;
+}
+
+.review-item.yellow {
+  background: #fefce8;
+
+  border-left-color: #eab308;
+}
+
+.review-item.red {
+  background:
+    var(--err-bg);
+
+  border-left-color: #dc2626;
+}
+
+.review-text {
+  flex: 1;
+
+  min-width: 0;
+
+  display: flex;
+
+  flex-direction: column;
+
+  gap: 2px;
+}
+
+.review-tick {
+  flex-shrink: 0;
+
+  width: 28px;
+
+  height: 28px;
+
+  border:
+    1px solid
+    var(--line-strong);
+
+  border-radius: 8px;
+
+  background: white;
+
+  color:
+    var(--ok);
+
+  font-size: 0.95rem;
+
+  font-weight: 700;
+
+  line-height: 1;
+}
+
+.review-tick:hover:not(:disabled) {
+  background: #ecfdf3;
+
+  border-color:
+    var(--ok);
+}
+
+.review-tick:disabled {
+  opacity: 0.4;
+}
+
+.review-label {
+  color:
+    var(--ink);
+
+  font-weight: 600;
+
+  overflow-wrap: anywhere;
+}
+
+.review-meta {
+  font-size: 0.75rem;
+
+  color:
+    var(--muted);
+}
+
+.review-item.red .review-meta {
+  color:
+    var(--err);
+}
+
+.review-clear {
+  width: 100%;
+
+  padding: 8px 14px;
+
+  font-size: 0.85rem;
+}
+
+.amend-label {
+  font-size: 0.9rem;
+
+  font-weight: 650;
+
+  color:
+    var(--ink);
+}
+
+textarea.amend-text {
+  min-height: 120px;
+
+  max-height: 320px;
+
+  padding: 12px 14px;
+
+  border:
+    1px solid
+    var(--line-strong);
+
+  border-radius: 12px;
+
+  background:
+    var(--surface);
+
+  font-size: 0.95rem;
+
+  line-height: 1.5;
+}
+
+textarea.amend-text:focus {
+  border-color:
+    var(--uob-blue);
+
+  box-shadow:
+    0 0 0 3px
+    rgba(0, 94, 184, 0.12);
+}
+
+textarea.amend-text:disabled {
+  background:
+    var(--surface-soft);
+}
+
+.amend-apply {
+  width: 100%;
+}
+
+.amend-loading-line {
+  height: 4px;
+
+  overflow: hidden;
+
+  border-radius: 999px;
+
+  background: var(--uob-blue-soft);
+}
+
+.amend-loading-line span {
+  display: block;
+
+  width: 35%;
+
+  height: 100%;
+
+  border-radius: inherit;
+
+  background: var(--uob-blue);
+
+  animation:
+    loadingSlide
+    1.4s
+    ease-in-out
+    infinite;
+}
+
+.amend-hint {
+  margin: 0;
+
+  font-size: 0.8rem;
+
+  color:
+    var(--muted);
+}
+
+.amend-status {
+  margin: 0;
+
+  padding: 10px 12px;
+
+  border-radius: 10px;
+
+  font-size: 0.85rem;
+
+  background:
+    var(--uob-blue-soft);
+
+  color:
+    var(--uob-blue-dark);
+}
+
+.amend-status.ok {
+  background:
+    #ecfdf3;
+
+  color:
+    var(--ok);
+}
+
+.amend-status.err {
+  background:
+    var(--err-bg);
+
+  color:
+    var(--err);
+}
+
+@media (
+  max-width: 900px
+) {
+  .editor-body {
+    flex-direction: column;
+  }
+
+  .amend-panel,
+  .amend-panel.collapsed {
+    width: 100%;
+
+    border-left: 0;
+
+    border-top:
+      1px solid
+      var(--line);
+  }
+
+  .amend-panel.collapsed {
+    flex-direction: row;
+
+    padding: 8px 12px;
+  }
+
+  .amend-collapsed-label {
+    writing-mode:
+      horizontal-tb;
+  }
+}
+
+/* ======================================================
    RESPONSIVE
 ====================================================== */
 
@@ -1249,8 +1764,8 @@ textarea::placeholder {
 
   .hero {
     padding:
-      92px 20px
-      76px;
+      28px 20px
+      16px;
   }
 
   .flow-section {
@@ -1261,6 +1776,22 @@ textarea::placeholder {
   .progress-page {
     padding:
       60px 20px;
+  }
+}
+
+@media (
+  max-width: 760px
+) {
+  .creation-inner {
+    grid-template-columns: 1fr;
+  }
+
+  .creation-inner .textarea-shell {
+    min-height: 0;
+  }
+
+  .create-actions {
+    grid-column: auto;
   }
 }
 
@@ -1285,22 +1816,51 @@ textarea::placeholder {
 
   .hero {
     padding:
-      78px 16px
-      64px;
+      34px 16px
+      16px;
   }
 
   .hero h1 {
     font-size:
       clamp(
-        2.75rem,
-        13vw,
-        4rem
+        2.05rem,
+        9vw,
+        2.8rem
       );
   }
 
   .flow-section {
     padding:
       64px 16px;
+  }
+
+  .creation-section {
+    padding: 0 16px 48px;
+  }
+
+  .creation-inner {
+    gap: 18px;
+  }
+
+  .textarea-head {
+    padding: 0 16px;
+  }
+
+  .creation-inner textarea {
+    min-height: 180px;
+
+    padding: 18px 16px;
+  }
+
+  .creation-inner .drop {
+    min-height: 170px;
+
+    padding: 24px 18px;
+  }
+
+  .create-actions,
+  .create-actions .generate-button {
+    width: 100%;
   }
 
   .textarea-head {
@@ -1382,7 +1942,8 @@ textarea::placeholder {
 
   .progress-logo,
   .lane.active
-  .lane-bar::after {
+  .lane-bar::after,
+  .amend-loading-line span {
     animation: none;
   }
 

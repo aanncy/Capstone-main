@@ -4,7 +4,7 @@ import re
 
 from pydantic import ValidationError
 
-from .prompts import SYSTEM_PROMPT, build_fix_prompt, build_user_prompt
+from .prompts import AMEND_SYSTEM_PROMPT, SYSTEM_PROMPT, build_amend_prompt, build_fix_prompt, build_user_prompt
 from .schema import Diagram, check_logic
 
 
@@ -39,7 +39,19 @@ async def generate_diagram(text: str, provider, attachments=(), max_fixes: int =
     attachments are sent with every request, so fix rounds can still see the original files.
     If trace is given, each raw model reply, the model's reasoning summary (if any) and its problems are appended to it."""
     user = build_user_prompt(text, [a.name for a in attachments])
-    reply = await provider.complete(SYSTEM_PROMPT, user, attachments)
+    return await _ask_until_valid(SYSTEM_PROMPT, user, provider, attachments, max_fixes, trace)
+
+
+async def amend_diagram(diagram: Diagram, instruction: str, provider, max_fixes: int = 2,
+                        trace: list | None = None) -> Diagram:
+    """Apply a change described in plain words to an existing diagram, with the same validation as generate."""
+    current = json.dumps(diagram.model_dump(by_alias=True), indent=1, ensure_ascii=False)
+    user = build_amend_prompt(current, instruction)
+    return await _ask_until_valid(AMEND_SYSTEM_PROMPT, user, provider, (), max_fixes, trace)
+
+
+async def _ask_until_valid(system: str, user: str, provider, attachments, max_fixes: int, trace: list | None) -> Diagram:
+    reply = await provider.complete(system, user, attachments)
     for attempt in range(max_fixes + 1):
         diagram, errors = _problems(reply)
         if trace is not None:
@@ -53,5 +65,5 @@ async def generate_diagram(text: str, provider, attachments=(), max_fixes: int =
             raise PipelineError(
                 f"The AI reply still had problems after {max_fixes + 1} tries: " + " ".join(errors[:3])
             )
-        reply = await provider.complete(SYSTEM_PROMPT, build_fix_prompt(user, reply, errors), attachments)
+        reply = await provider.complete(system, build_fix_prompt(user, reply, errors), attachments)
     raise PipelineError("Unreachable")

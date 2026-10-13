@@ -7,12 +7,12 @@ Reply with ONE JSON object and nothing else: no markdown, no code fences, no com
 Schema:
 {
   "title": "short process name",
-  "lanes": [{"id": "maker", "name": "Maker"}],
+  "lanes": [{"id": "maker", "name": "Maker", "confidence": 0.0-1.0}],
   "nodes": [
     {"id": "n1", "type": "start|end|task|decision|subprocess|document|multiple_documents|data_storage|internal_storage|database|manual_input|manual_operation|input_output|display|merge|connector|predefined_process", "label": "short verb phrase",
      "lane": "<lane id>", "source_ref": "where in the text", "confidence": 0.0-1.0}
   ],
-  "edges": [{"from": "n1", "to": "n2", "label": ""}]
+  "edges": [{"from": "n1", "to": "n2", "label": "", "confidence": 0.0-1.0}]
 }
 
 What to build from:
@@ -39,8 +39,15 @@ Level of detail:
   node. Do not fold different outcomes into one generic "handle exception" step.
 - Use "subprocess" for a procedure the document names but describes elsewhere or only
   in outline.
-- Do not invent steps, branches or owners that the document does not support. When
-  detail is missing, leave it out rather than guessing.
+- Include what the document states AND what it clearly implies. Implied means the
+  document gives a basis for it without spelling it out: a handoff between roles, the
+  other outcome of a check when only one outcome is described, where a failed or
+  rejected item must go back to, a step required by a referenced table, form or
+  appendix, or a step named in an overview that the detailed procedure skips. Include
+  implied items with a low confidence (see Confidence) and a source_ref that names
+  their basis, so a reviewer can confirm them. Leaving them out hides them from review.
+- Never invent: do not add steps, branches, owners or systems for which the document
+  gives no basis at all.
 
 Special flowchart symbols:
 - Use document for a document/report, multiple_documents for a set of documents,
@@ -75,13 +82,30 @@ Structure:
 - Keep node labels under 8 words, starting with a verb. Phrase decisions as questions.
 
 Per-node fields:
-- confidence: 0.9 or more when the step and its owner are both stated; 0.6 or less
-  when either is inferred or unclear.
 - source_ref: a short pointer such as "Step 5.3", "Page 9 diagram, Repair / enrich",
-  or a 3 to 6 word quote from the text.
+  or a 3 to 6 word quote from the text. For an implied node, name what implies it.
 
-Before you reply, check your JSON against the structure rules above and fix anything
-that breaks them. Then output the JSON object only.
+Confidence (every node, lane and edge has one):
+- Score each item on how directly the document supports it, using the whole scale:
+  0.9 to 1.0   stated: the document says it in so many words.
+  0.7 to 0.89  stated, but you had to work out part of it (the owner, the order, the wording).
+  0.4 to 0.69  implied: the document gives a basis for it but does not state it.
+  below 0.4    a best guess to fill a gap the flow cannot work without.
+- Nodes: score the step and its owner together, and use the lower of the two.
+- Lanes: score whether this role, team or party really performs these steps. Use 0.6
+  or less if you merged several roles into one lane, and 0.3 or less for "unassigned".
+- Edges: score whether the process really goes from this step to that one. An arrow
+  that follows the document's own sequence is usually 0.9 or more. An arrow whose
+  destination the document does not give (for example where a rejection or failed
+  check goes back to) is implied or a guess.
+- Do not give everything the same score. Reviewers use low scores to decide what to
+  check, so an honest 0.5 is more useful than a hopeful 0.9.
+
+Before you reply:
+- Coverage: go through the document's numbered sections, tables and diagrams one by one
+  and make sure each is represented by at least one node. Add anything missing.
+- Check your JSON against the structure rules above and fix anything that breaks them.
+Then output the JSON object only.
 """
 
 
@@ -100,4 +124,34 @@ def build_fix_prompt(original_user_prompt: str, previous_reply: str, errors: lis
         f"{original_user_prompt}\n\nYour previous reply was:\n{previous_reply}\n\n"
         f"It had these problems:\n{problems}\n\n"
         "Return the corrected, complete JSON object only."
+    )
+
+
+AMEND_SYSTEM_PROMPT = SYSTEM_PROMPT + """
+Amending an existing diagram:
+- Instead of documentation you may be given an existing diagram as JSON and a change
+  requested by the user. Apply exactly that change and return the complete, updated diagram.
+- Change only what the request needs. Every node, edge and lane it does not affect stays
+  exactly as it is: same id, label, type, lane, source_ref and confidence. Lanes keep
+  their id, name and confidence, and edges their confidence, too. A confidence of 1.0
+  means a person has reviewed that node, lane or edge: never lower it.
+- Keep existing ids, even ones that do not follow the n1, n2, ... pattern (the user may have
+  added steps by hand). This overrides the id rule above. Give new nodes new ids that follow
+  the highest existing nN.
+- When you insert a step between two others, reroute the arrows through it rather than
+  leaving the old arrow in place. When you remove a step, reconnect its neighbours so the
+  flow stays connected.
+- New nodes get source_ref "Amended: <short summary of the request>" and confidence 0.9.
+  New lanes and edges get confidence 0.9.
+- The structure rules above still apply to the result. If the existing diagram already
+  breaks one of them, fix that too.
+- If the request is unclear or cannot be applied, return the diagram unchanged.
+"""
+
+
+def build_amend_prompt(diagram_json: str, instruction: str) -> str:
+    return (
+        f"Current diagram:\n{diagram_json}\n\n"
+        f"Requested change:\n{instruction}\n\n"
+        "Return the complete updated JSON object now."
     )
