@@ -149,7 +149,13 @@ def from_drawio_xml(xml: str) -> Diagram:
         out_nodes.append({"id": i, "type": node_type(i), "label": _text(a["label"]), "lane": lane_of(i),
                           "source_ref": a.get("source_ref", "" if ours else "Added in the editor"),
                           "confidence": confidence})
-    lane_list = [{"id": lanes[i], "name": _text(cells[i][0]["label"]) or lanes[i]} for i in lane_ids]
+    def lane_confidence(i):
+        try:
+            return min(max(float(cells[i][0].get("confidence", "")), 0.0), 1.0)
+        except ValueError:
+            return 1.0  # a lane drawn by hand in the editor
+    lane_list = [{"id": lanes[i], "name": _text(cells[i][0]["label"]) or lanes[i], "confidence": lane_confidence(i)}
+                 for i in lane_ids]
     if any(n["lane"] == "unassigned" for n in out_nodes) and "unassigned" not in lanes.values():
         lane_list.append({"id": "unassigned", "name": "Unassigned"})
     page = ET.fromstring(xml).find("diagram") if xml.lstrip().startswith("<mxfile") else None

@@ -641,12 +641,14 @@ def _label_offset(label: str, side: str, pts) -> tuple[float, float]:
 def to_drawio_xml(d: Diagram) -> str:
     lay = _Layout(d)
     names = {l.id: l.name for l in d.lanes}
+    confidence = {l.id: l.confidence for l in d.lanes}
     out = ['<mxCell id="0"/>', '<mxCell id="1" parent="0"/>']
     for l in lay.lanes:
         top, bottom = lay.lane_y[l]
         out.append(
-            f'<mxCell id="lane_{_e(l)}" value="{_e(names.get(l, l))}" style="{LANE}" vertex="1" parent="1">'
-            f'<mxGeometry x="{LANE_X}" y="{top}" width="{lay.width}" height="{bottom - top}" as="geometry"/></mxCell>'
+            f'<object label="{_e(names.get(l, l))}" id="lane_{_e(l)}" confidence="{confidence.get(l, 1.0)}">'
+            f'<mxCell style="{LANE}" vertex="1" parent="1">'
+            f'<mxGeometry x="{LANE_X}" y="{top}" width="{lay.width}" height="{bottom - top}" as="geometry"/></mxCell></object>'
         )
     for n in d.nodes:
         x, y, w, h = lay.box[n.id]

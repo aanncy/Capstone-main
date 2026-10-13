@@ -7,7 +7,7 @@ Reply with ONE JSON object and nothing else: no markdown, no code fences, no com
 Schema:
 {
   "title": "short process name",
-  "lanes": [{"id": "maker", "name": "Maker"}],
+  "lanes": [{"id": "maker", "name": "Maker", "confidence": 0.0-1.0}],
   "nodes": [
     {"id": "n1", "type": "start|end|task|decision|subprocess|document|multiple_documents|data_storage|internal_storage|database|manual_input|manual_operation|input_output|display|merge|connector|predefined_process", "label": "short verb phrase",
      "lane": "<lane id>", "source_ref": "where in the text", "confidence": 0.0-1.0}
@@ -77,6 +77,11 @@ Structure:
 Per-node fields:
 - confidence: 0.9 or more when the step and its owner are both stated; 0.6 or less
   when either is inferred or unclear.
+
+Per-lane fields:
+- confidence: 0.9 or more when the document names this role, team or party and says
+  it performs these steps; 0.6 or less when you inferred the lane, merged several
+  roles into it, or it is the "unassigned" lane. Use 0.3 or less for a pure guess.
 - source_ref: a short pointer such as "Step 5.3", "Page 9 diagram, Repair / enrich",
   or a 3 to 6 word quote from the text.
 
@@ -108,7 +113,9 @@ Amending an existing diagram:
 - Instead of documentation you may be given an existing diagram as JSON and a change
   requested by the user. Apply exactly that change and return the complete, updated diagram.
 - Change only what the request needs. Every node, edge and lane it does not affect stays
-  exactly as it is: same id, label, type, lane, source_ref and confidence.
+  exactly as it is: same id, label, type, lane, source_ref and confidence. Lanes keep
+  their id, name and confidence too. A confidence of 1.0 means a person has reviewed
+  that node or lane: never lower it.
 - Keep existing ids, even ones that do not follow the n1, n2, ... pattern (the user may have
   added steps by hand). This overrides the id rule above. Give new nodes new ids that follow
   the highest existing nN.
@@ -116,6 +123,7 @@ Amending an existing diagram:
   leaving the old arrow in place. When you remove a step, reconnect its neighbours so the
   flow stays connected.
 - New nodes get source_ref "Amended: <short summary of the request>" and confidence 0.9.
+  New lanes get confidence 0.9.
 - The structure rules above still apply to the result. If the existing diagram already
   breaks one of them, fix that too.
 - If the request is unclear or cannot be applied, return the diagram unchanged.

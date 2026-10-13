@@ -15,6 +15,7 @@ NodeType = Literal[
 class Lane(BaseModel):
     id: str
     name: str
+    confidence: float = Field(default=0.8, ge=0, le=1)  # how sure the AI is this party really does these steps
 
 
 class Node(BaseModel):

@@ -90,9 +90,12 @@ def test_gives_up_after_retries():
 
 def test_xml_is_well_formed_and_keeps_custom_fields():
     from app.schema import Diagram
-    root = ET.fromstring(to_drawio_xml(Diagram.model_validate(GOOD)))
+    lanes = json.loads(json.dumps(GOOD))
+    lanes["lanes"][1]["confidence"] = 0.35
+    root = ET.fromstring(to_drawio_xml(Diagram.model_validate(lanes)))
     objs = {o.get("id"): o for o in root.iter("object")}
-    assert set(objs) == {"n1", "n2", "n3", "n4"} and objs["n3"].get("confidence") == "0.6"
+    assert set(objs) == {"n1", "n2", "n3", "n4", "lane_maker", "lane_approver"}
+    assert objs["n3"].get("confidence") == "0.6" and objs["lane_approver"].get("confidence") == "0.35"
     ids = [e.get("id") for e in root.iter() if e.get("id")]
     assert len(ids) == len(set(ids))
 

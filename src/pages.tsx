@@ -1,10 +1,12 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { DragEvent } from "react";
 
 import DrawioEditor from "./DrawioEditor";
 import type { EditorHandle } from "./DrawioEditor";
 
 import { STAGES, amendDiagram } from "./api";
+import { findFlags, markReviewed } from "./review";
+import type { Flag } from "./review";
 import type { GenerateInput, Stage } from "./api";
 
 import { SAMPLE_TEXT } from "./sampleDiagram";
@@ -297,6 +299,33 @@ export function EditorPage({
       setLatest(x);
     }, []);
 
+  // low-confidence steps and lanes, kept in step with the editor
+  const [flags, setFlags] =
+    useState<Flag[]>([]);
+
+  useEffect(() => {
+    let current = true;
+
+    findFlags(latest).then((f) => {
+      if (current) setFlags(f);
+    });
+
+    return () => {
+      current = false;
+    };
+  }, [latest]);
+
+  const clearFlags = async (ids: string[]) => {
+    const reviewed =
+      await markReviewed(
+        latest,
+        ids
+      );
+
+    setShown(reviewed);
+    setLatest(reviewed);
+  };
+
   const saveFile = () => {
     const url =
       URL.createObjectURL(
@@ -363,6 +392,8 @@ export function EditorPage({
           />
 
           <AmendPanel
+            flags={flags}
+            onClearFlags={clearFlags}
             onApply={async (instruction) => {
               const result =
                 await amendDiagram(
@@ -386,8 +417,12 @@ export function EditorPage({
  * Starts open.
  */
 function AmendPanel({
+  flags,
+  onClearFlags,
   onApply,
 }: {
+  flags: Flag[];
+  onClearFlags: (ids: string[]) => Promise<void>;
   onApply: (instruction: string) => Promise<void>;
 }) {
   const [open, setOpen] =
@@ -404,6 +439,28 @@ function AmendPanel({
 
   const [done, setDone] =
     useState<string | null>(null);
+
+  const [clearing, setClearing] =
+    useState(false);
+
+  const clear = async (ids: string[]) => {
+    if (clearing || busy || ids.length === 0) return;
+
+    setClearing(true);
+    setError(null);
+
+    try {
+      await onClearFlags(ids);
+    } catch (e) {
+      setError(
+        e instanceof Error
+          ? e.message
+          : "Could not mark the items as reviewed."
+      );
+    } finally {
+      setClearing(false);
+    }
+  };
 
   const apply = async () => {
     const instruction = text.trim();
@@ -467,6 +524,12 @@ function AmendPanel({
       </div>
 
       <div className="amend-body">
+        <ReviewList
+          flags={flags}
+          disabled={busy || clearing}
+          onClear={clear}
+        />
+
         <label
           htmlFor="amend-text"
           className="amend-label"
@@ -515,7 +578,7 @@ function AmendPanel({
 
         {busy && (
           <p className="amend-status" role="status">
-            The AI is updating your diagram. This usually takes 10 to 40 seconds.
+            The AI is updating your diagram. This may take a few minutes.
           </p>
         )}
 
@@ -532,5 +595,95 @@ function AmendPanel({
         )}
       </div>
     </aside>
+  );
+}
+
+/**
+ * Steps and lanes the AI was unsure about (confidence under 0.7):
+ * yellow from 0.4 to under 0.7, red under 0.4.
+ * The tick on an item marks just that one as reviewed; "Mark all as reviewed" does every item.
+ * Reviewed items get confidence 1 and leave the list.
+ */
+function ReviewList({
+  flags,
+  disabled,
+  onClear,
+}: {
+  flags: Flag[];
+  disabled: boolean;
+  onClear: (ids: string[]) => void;
+}) {
+  const red =
+    flags.filter((f) => f.level === "red").length;
+
+  return (
+    <section
+      className="review"
+      aria-labelledby="review-title"
+    >
+      <div className="review-head">
+        <span
+          id="review-title"
+          className="amend-label"
+        >
+          Needs review
+        </span>
+
+        {flags.length > 0 && (
+          <span className="review-count">
+            {flags.length}
+            {red > 0 && ` (${red} low)`}
+          </span>
+        )}
+      </div>
+
+      {flags.length === 0 ? (
+        <p className="review-empty">
+          No low-confidence steps or lanes.
+        </p>
+      ) : (
+        <>
+          <ul className="review-list">
+            {flags.map((f) => (
+              <li
+                key={f.id}
+                className={`review-item ${f.level}`}
+                title={`${f.kind} ${f.id}: confidence ${f.confidence}`}
+              >
+                <span className="review-text">
+                  <span className="review-label">
+                    {f.label}
+                  </span>
+
+                  <span className="review-meta">
+                    {f.kind} · {Math.round(f.confidence * 100)}%
+                  </span>
+                </span>
+
+                <button
+                  type="button"
+                  className="review-tick"
+                  disabled={disabled}
+                  onClick={() => onClear([f.id])}
+                  aria-label={`Mark ${f.kind.toLowerCase()} "${f.label}" as reviewed`}
+                  title="Mark as reviewed"
+                >
+                  ✓
+                </button>
+              </li>
+            ))}
+          </ul>
+
+          <button
+            type="button"
+            className="secondary review-clear"
+            disabled={disabled}
+            onClick={() => onClear(flags.map((f) => f.id))}
+          >
+            Mark all as reviewed
+          </button>
+        </>
+      )}
+    </section>
   );
 }
