@@ -1,8 +1,29 @@
-# Self-hosted draw.io. Start with: docker compose up -d
-# Then open http://localhost:8080 to confirm it is running.
+# Runs the whole app: docker compose up -d --build, then open http://localhost:3000
+# For development you can start only the editor: docker compose up -d drawio
 services:
+  web:
+    build:
+      context: .
+      args:
+        # Where users' browsers reach the draw.io editor. On a server, set DRAWIO_URL=http://<server>:8080
+        VITE_DRAWIO_URL: ${DRAWIO_URL:-http://localhost:8080}
+    ports:
+      - "${WEB_PORT:-3000}:80"
+    depends_on:
+      - backend
+      - drawio
+    restart: unless-stopped
+
+  backend:
+    build: ./backend
+    env_file: backend/.env          # API keys and model settings (copy backend/.env.example)
+    volumes:
+      - ./backend/outputs:/app/outputs   # every run's diagram, AI replies and reasoning
+      - ./backend/logs:/app/logs
+    restart: unless-stopped
+
   drawio:
-    image: jgraph/drawio:latest   # pin a specific version before the demo
+    image: jgraph/drawio:latest     # pin a specific version before the demo
     ports:
       - "8080:8080"
     restart: unless-stopped

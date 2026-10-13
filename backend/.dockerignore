@@ -1,0 +1,10 @@
+.venv/
+venv/
+.env
+outputs/
+logs/
+tests/
+.pytest_cache/
+**/__pycache__/
+*.drawio
+*.json
