@@ -120,7 +120,11 @@ def from_drawio_xml(xml: str) -> Diagram:
         a = cells[i][0]
         if a.get("source") in nodes and a.get("target") in nodes:
             label = " ".join(filter(None, [_text(a["label"])] + edge_labels.get(i, [])))
-            edges.append({"from": a["source"], "to": a["target"], "label": label})
+            try:
+                confidence = min(max(float(a.get("confidence", "")), 0.0), 1.0)
+            except ValueError:
+                confidence = 1.0  # an arrow drawn by hand in the editor
+            edges.append({"from": a["source"], "to": a["target"], "label": label, "confidence": confidence})
     has_in = {e["to"] for e in edges}
     has_out = {e["from"] for e in edges}
 

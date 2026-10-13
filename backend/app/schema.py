@@ -32,6 +32,7 @@ class Edge(BaseModel):
     source: str = Field(alias="from")
     target: str = Field(alias="to")
     label: str = ""
+    confidence: float = Field(default=0.8, ge=0, le=1)  # how sure the AI is the process really goes this way
 
 
 class Diagram(BaseModel):

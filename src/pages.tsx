@@ -599,7 +599,7 @@ function AmendPanel({
 }
 
 /**
- * Steps and lanes the AI was unsure about (confidence under 0.7):
+ * Steps, lanes and connections the AI was unsure about (confidence under 0.7):
  * yellow from 0.4 to under 0.7, red under 0.4.
  * The tick on an item marks just that one as reviewed; "Mark all as reviewed" does every item.
  * Reviewed items get confidence 1 and leave the list.
@@ -639,7 +639,7 @@ function ReviewList({
 
       {flags.length === 0 ? (
         <p className="review-empty">
-          No low-confidence steps or lanes.
+          No low-confidence steps, lanes or connections.
         </p>
       ) : (
         <>

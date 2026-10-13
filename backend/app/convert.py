@@ -59,6 +59,7 @@ STYLES.update({kind: shape + "html=1;whiteSpace=wrap;fillColor=#ffffff;strokeCol
 LANE = "swimlane;horizontal=0;startSize=32;html=1;whiteSpace=wrap;fillColor=#f8fafc;strokeColor=#94a3b8;fontStyle=1;"
 EDGE = "edgeStyle=none;rounded=1;html=1;endArrow=block;endFill=1;jumpStyle=arc;jumpSize=10;strokeColor=#334155;"
 LABEL = "labelBackgroundColor=#ffffff;fontSize=11;fontStyle=1;"
+REVIEW_BELOW = 0.7  # arrows the AI is less sure of than this are drawn dashed until a person reviews them
 YES = {"yes", "y", "true", "approved", "pass", "passed", "valid", "ok"}
 NO = {"no", "n", "false", "rejected", "fail", "failed", "invalid"}
 OUT = {"R": (1, 0), "L": (-1, 0), "T": (0, -1), "B": (0, 1)}  # direction leaving each side of a box
@@ -664,6 +665,8 @@ def to_drawio_xml(d: Diagram) -> str:
         pts = lay._points(k)
         style = (f"{EDGE}exitX={sfx:.6g};exitY={sfy:.6g};exitDx=0;exitDy=0;exitPerimeter=0;"
                  f"entryX={tfx:.6g};entryY={tfy:.6g};entryDx=0;entryDy=0;entryPerimeter=0;")
+        if e.confidence < REVIEW_BELOW:
+            style += "dashed=1;"
         geo = '<mxGeometry relative="1" as="geometry">'
         label = e.label.strip()
         if label:
@@ -675,8 +678,9 @@ def to_drawio_xml(d: Diagram) -> str:
         if waypoints:
             geo += f'<Array as="points">{waypoints}</Array>'
         out.append(
-            f'<mxCell id="e{k + 1}" value="{_e(label)}" style="{style}" edge="1" parent="1" '
-            f'source="{_e(e.source)}" target="{_e(e.target)}">{geo}</mxGeometry></mxCell>'
+            f'<object label="{_e(label)}" id="e{k + 1}" confidence="{e.confidence}">'
+            f'<mxCell style="{style}" edge="1" parent="1" source="{_e(e.source)}" target="{_e(e.target)}">'
+            f'{geo}</mxGeometry></mxCell></object>'
         )
     return (
         f'<mxfile host="app"><diagram id="d1" name="{_e(d.title)}"><mxGraphModel dx="1100" dy="700" grid="1" gridSize="10" '

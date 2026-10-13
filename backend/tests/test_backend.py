@@ -92,10 +92,15 @@ def test_xml_is_well_formed_and_keeps_custom_fields():
     from app.schema import Diagram
     lanes = json.loads(json.dumps(GOOD))
     lanes["lanes"][1]["confidence"] = 0.35
+    lanes["edges"][3]["confidence"] = 0.5
     root = ET.fromstring(to_drawio_xml(Diagram.model_validate(lanes)))
     objs = {o.get("id"): o for o in root.iter("object")}
-    assert set(objs) == {"n1", "n2", "n3", "n4", "lane_maker", "lane_approver"}
+    assert set(objs) == {"n1", "n2", "n3", "n4", "lane_maker", "lane_approver", "e1", "e2", "e3", "e4"}
     assert objs["n3"].get("confidence") == "0.6" and objs["lane_approver"].get("confidence") == "0.35"
+    # the unsure arrow (n3 -> n2, "No") is dashed, the others are solid
+    assert objs["e4"].get("confidence") == "0.5" and objs["e4"].get("label") == "No"
+    assert "dashed=1" in objs["e4"].find("mxCell").get("style")
+    assert "dashed=1" not in objs["e1"].find("mxCell").get("style")
     ids = [e.get("id") for e in root.iter() if e.get("id")]
     assert len(ids) == len(set(ids))
 

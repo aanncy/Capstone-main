@@ -1,13 +1,13 @@
 /**
- * Low-confidence steps and lanes for the user to review, read straight from the draw.io XML
- * (so it follows the user's own edits), and marking them reviewed (confidence 1).
+ * Low-confidence steps, lanes and connections for the user to review, read straight from the
+ * draw.io XML (so it follows the user's own edits), and marking them reviewed (confidence 1).
  */
 
 export type FlagLevel = "red" | "yellow";
 
 export type Flag = {
   id: string;
-  kind: "Step" | "Lane";
+  kind: "Step" | "Lane" | "Connection";
   label: string;
   confidence: number;
   level: FlagLevel;
@@ -47,20 +47,35 @@ async function readDoc(xml: string): Promise<Document | null> {
   return doc;
 }
 
-/** Steps and lanes with a stored confidence under REVIEW_BELOW, least sure first. */
+/** Steps, lanes and connections with a stored confidence under REVIEW_BELOW, least sure first. */
 export async function findFlags(xml: string): Promise<Flag[]> {
   const doc = await readDoc(xml);
   if (!doc) return [];
+  const names = new Map<string, string>();
+  doc.querySelectorAll("object, mxCell[id]").forEach((el) => {
+    const label = el.getAttribute("label") ?? el.getAttribute("value");
+    if (el.getAttribute("id") && label) names.set(el.getAttribute("id")!, toText(label));
+  });
+  const name = (id: string | null) => (id && names.get(id)) || "?";
   const flags: Flag[] = [];
   doc.querySelectorAll("object").forEach((o) => {
     const raw = o.getAttribute("confidence");
     const confidence = raw === null || raw === "" ? NaN : Number(raw);
     if (!(confidence < REVIEW_BELOW)) return;
-    const isLane = (o.querySelector("mxCell")?.getAttribute("style") ?? "").includes("swimlane");
+    const cell = o.querySelector("mxCell");
+    const label = toText(o.getAttribute("label") ?? "");
+    let kind: Flag["kind"] = "Step";
+    let text = label || "(no label)";
+    if (cell?.getAttribute("edge") === "1") {
+      kind = "Connection";
+      text = `${name(cell.getAttribute("source"))} → ${name(cell.getAttribute("target"))}` + (label ? ` (${label})` : "");
+    } else if ((cell?.getAttribute("style") ?? "").includes("swimlane")) {
+      kind = "Lane";
+    }
     flags.push({
       id: o.getAttribute("id") ?? "",
-      kind: isLane ? "Lane" : "Step",
-      label: toText(o.getAttribute("label") ?? "") || "(no label)",
+      kind,
+      label: text,
       confidence,
       level: confidence < RED_BELOW ? "red" : "yellow",
     });
@@ -68,13 +83,17 @@ export async function findFlags(xml: string): Promise<Flag[]> {
   return flags.sort((a, b) => a.confidence - b.confidence);
 }
 
-/** The same diagram with these steps and lanes set to confidence 1 (reviewed by a person). */
+/** The same diagram with these items set to confidence 1 (reviewed by a person). Reviewed arrows stop being dashed. */
 export async function markReviewed(xml: string, ids: string[]): Promise<string> {
   const doc = await readDoc(xml);
   if (!doc) throw new Error("The diagram could not be read.");
   const wanted = new Set(ids);
   doc.querySelectorAll("object").forEach((o) => {
-    if (wanted.has(o.getAttribute("id") ?? "")) o.setAttribute("confidence", "1");
+    if (!wanted.has(o.getAttribute("id") ?? "")) return;
+    o.setAttribute("confidence", "1");
+    const cell = o.querySelector("mxCell");
+    const style = cell?.getAttribute("style");
+    if (cell?.getAttribute("edge") === "1" && style) cell.setAttribute("style", style.replace(/(^|;)dashed=1;?/, "$1"));
   });
   return new XMLSerializer().serializeToString(doc);
 }
