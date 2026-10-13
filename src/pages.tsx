@@ -13,29 +13,52 @@ import { SAMPLE_TEXT } from "./sampleDiagram";
 
 /* ---------------------------------------------------------------- Input */
 
+// match the backend (backend/app/extract.py): one request carries all files to the AI
+const MAX_FILES = 10;
+const MAX_TOTAL_MB = 14;
+const MAX_TOTAL_BYTES = MAX_TOTAL_MB * 1024 * 1024;
+
+const formatSize = (bytes: number) =>
+  bytes >= 1024 * 1024
+    ? `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+    : `${Math.max(1, Math.round(bytes / 1024))} KB`;
+
 export function InputPage({
   onGenerate,
 }: {
   onGenerate: (i: GenerateInput) => void;
 }) {
   const [text, setText] = useState("");
-  const [file, setFile] = useState<File | null>(null);
+  const [files, setFiles] = useState<File[]>([]);
   const [over, setOver] = useState(false);
 
   const canSubmit =
-    text.trim().length > 0 || file !== null;
+    text.trim().length > 0 || files.length > 0;
+
+  // several sources about one process (an SOP, a meeting transcript, a rough diagram...) are collated into one diagram
+  const addFiles = (list: FileList | null) => {
+    if (!list) return;
+
+    setFiles((current) => {
+      const seen = new Set(current.map((f) => `${f.name}/${f.size}`));
+      const added = Array.from(list).filter((f) => !seen.has(`${f.name}/${f.size}`));
+
+      return [...current, ...added].slice(0, MAX_FILES);
+    });
+  };
+
+  const totalBytes =
+    files.reduce((sum, f) => sum + f.size, 0);
+
+  const tooBig =
+    totalBytes > MAX_TOTAL_BYTES;
 
   const onDrop = (
     e: DragEvent<HTMLLabelElement>
   ) => {
     e.preventDefault();
     setOver(false);
-
-    const f = e.dataTransfer.files?.[0];
-
-    if (f) {
-      setFile(f);
-    }
+    addFiles(e.dataTransfer.files);
   };
 
   return (
@@ -79,7 +102,7 @@ export function InputPage({
           </div>
 
           <div className="upload-area">
-            <h2>Or upload a document</h2>
+            <h2>Or upload documents</h2>
 
             <label
               className={`drop${over ? " over" : ""}`}
@@ -92,38 +115,58 @@ export function InputPage({
             >
               <input
                 type="file"
-                accept=".pdf,.docx,.txt,.md,.png,.jpg,.jpeg"
-                onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+                multiple
+                accept=".pdf,.docx,.txt,.md,.png,.jpg,.jpeg,.webp"
+                onChange={(e) => {
+                  addFiles(e.target.files);
+                  e.target.value = ""; // so the same file can be picked again after removing it
+                }}
               />
 
               <div className="upload-icon">↑</div>
 
-              {file ? (
-                <>
-                  <div className="upload-title">{file.name}</div>
-                  <p className="upload-copy">
-                    {Math.max(1, Math.round(file.size / 1024))} KB
-                  </p>
-                  <span className="upload-types">READY TO USE</span>
-                </>
-              ) : (
-                <>
-                  <div className="upload-title">Choose a file or drop it here</div>
-                  <p className="upload-copy">
-                    PDF · DOCX · TXT · MD · PNG · JPG
-                  </p>
-                </>
-              )}
+              <div className="upload-title">
+                {files.length ? "Add more files" : "Choose files or drop them here"}
+              </div>
+
+              <p className="upload-copy">
+                PDF · DOCX · TXT · MD · PNG · JPG · up to {MAX_FILES} files, {MAX_TOTAL_MB} MB in total
+              </p>
             </label>
 
-            {file && (
-              <button
-                type="button"
-                className="remove-file"
-                onClick={() => setFile(null)}
-              >
-                Remove file
-              </button>
+            {files.length > 0 && (
+              <ul className="file-list">
+                {files.map((f, i) => (
+                  <li key={`${f.name}/${f.size}`}>
+                    <span className="file-name">{f.name}</span>
+
+                    <span className="file-size">
+                      {formatSize(f.size)}
+                    </span>
+
+                    <button
+                      type="button"
+                      className="file-remove"
+                      aria-label={`Remove ${f.name}`}
+                      onClick={() => setFiles((current) => current.filter((_, j) => j !== i))}
+                    >
+                      ×
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+
+            {files.length > 1 && !tooBig && (
+              <p className="upload-note">
+                These {files.length} files will be combined into one diagram.
+              </p>
+            )}
+
+            {tooBig && (
+              <p className="upload-note err" role="alert">
+                The files add up to {formatSize(totalBytes)}. Together they must stay under {MAX_TOTAL_MB} MB.
+              </p>
             )}
           </div>
 
@@ -131,8 +174,8 @@ export function InputPage({
             <button
               type="button"
               className="primary generate-button"
-              disabled={!canSubmit}
-              onClick={() => onGenerate({ text, file })}
+              disabled={!canSubmit || tooBig}
+              onClick={() => onGenerate({ text, files })}
             >
               Generate diagram
               <span aria-hidden="true">→</span>

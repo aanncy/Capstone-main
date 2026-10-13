@@ -747,40 +747,103 @@ textarea::placeholder {
     0.93rem;
 }
 
-.upload-types {
-  margin-top: 10px;
+.file-list {
+  margin: 14px 0 0;
 
-  color:
-    var(--muted-light);
+  padding: 0;
 
-  font-size:
-    0.75rem;
+  list-style: none;
 
-  font-weight: 650;
+  display: flex;
 
-  letter-spacing:
-    0.07em;
+  flex-direction: column;
+
+  gap: 6px;
 }
 
-.remove-file {
-  margin-top: 14px;
+.file-list li {
+  padding: 8px 8px 8px 14px;
 
-  padding: 4px 0;
+  display: flex;
+
+  align-items: center;
+
+  gap: 10px;
+
+  border:
+    1px solid
+    var(--line);
+
+  border-radius: 10px;
+
+  background:
+    var(--surface);
+}
+
+.file-name {
+  flex: 1;
+
+  min-width: 0;
+
+  overflow: hidden;
+
+  text-overflow: ellipsis;
+
+  white-space: nowrap;
+
+  font-weight: 600;
+
+  color:
+    var(--ink);
+}
+
+.file-size {
+  font-size: 0.85rem;
+
+  color:
+    var(--muted);
+}
+
+.file-remove {
+  width: 28px;
+
+  height: 28px;
 
   border: 0;
+
+  border-radius: 8px;
 
   background:
     transparent;
 
   color:
-    var(--uob-blue);
+    var(--muted);
 
-  font-weight: 600;
+  font-size: 1.2rem;
+
+  line-height: 1;
 }
 
-.remove-file:hover {
-  text-decoration:
-    underline;
+.file-remove:hover {
+  background:
+    var(--err-bg);
+
+  color:
+    var(--err);
+}
+
+.upload-note {
+  margin: 10px 0 0;
+
+  font-size: 0.9rem;
+
+  color:
+    var(--muted);
+}
+
+.upload-note.err {
+  color:
+    var(--err);
 }
 
 /* ======================================================

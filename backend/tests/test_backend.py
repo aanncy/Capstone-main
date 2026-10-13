@@ -306,3 +306,52 @@ def test_labels_fit_inside_their_shape():
             assert len(lines) * LINE_H + 8 <= h * (1 - top - bottom) + 1, (kind, label, w, h)
             if w < SHAPES[kind][2]:  # below the widest allowed, a long word is never split
                 assert all(len(word) <= chars for word in label.split()), (kind, label, w)
+
+
+def test_several_files_are_collated_in_one_request(monkeypatch):
+    fake = Fake(json.dumps(GOOD))
+    app.dependency_overrides[get_provider] = lambda: fake
+    c = TestClient(app)
+    sources = [("files", ("SOP.pdf", b"%PDF-1.4 sop")), ("files", ("transcript.txt", b"Mary: the team lead approves now")),
+               ("files", ("sketch.png", b"\x89PNG rough"))]
+    r = c.post("/api/generate", data={"text": "Payments process"}, files=sources)
+    assert r.status_code == 200 and fake.calls == 1
+    assert [a.name for a in fake.attachments[0]] == ["SOP.pdf", "transcript.txt", "sketch.png"]
+    # too many files, or files that together exceed the request limit, are refused with a clear message
+    r = c.post("/api/generate", files=[("files", (f"f{i}.txt", b"x")) for i in range(11)])
+    assert r.status_code == 400 and "at most 10" in r.json()["detail"]
+    big = b"%PDF" + b"0" * (8 * 1024 * 1024)
+    r = c.post("/api/generate", files=[("files", ("a.pdf", big)), ("files", ("b.pdf", big))])
+    assert r.status_code == 413 and "add up to" in r.json()["detail"]
+    # a bad file names which one
+    r = c.post("/api/generate", files=[("files", ("ok.txt", b"x")), ("files", ("notes.xls", b"x"))])
+    assert r.status_code == 400 and r.json()["detail"].startswith("notes.xls:")
+    app.dependency_overrides.clear()
+
+
+def test_text_limit_depends_on_the_provider(monkeypatch):
+    from app.main import max_chars
+    monkeypatch.delenv("MAX_INPUT_CHARS", raising=False)
+    monkeypatch.setenv("PROVIDERS", "gemini,github_models")
+    assert max_chars() == 300_000  # a long meeting transcript fits
+    monkeypatch.setenv("PROVIDERS", "github_models")
+    assert max_chars() == 15_000
+    monkeypatch.setenv("MAX_INPUT_CHARS", "50000")
+    assert max_chars() == 50_000
+
+
+def test_gemini_is_told_which_file_is_which(monkeypatch):
+    import httpx
+    from app.extract import Attachment
+    from app.providers import GeminiProvider
+    sent = {}
+
+    async def post(self, url, headers=None, json=None):
+        sent.update(json)
+        return httpx.Response(200, json={"candidates": [{"content": {"parts": [{"text": "{}"}]}}]})
+    monkeypatch.setattr(httpx.AsyncClient, "post", post)
+    files = [Attachment("SOP.pdf", "application/pdf", b"%PDF"), Attachment("call.txt", "text/plain", b"hi")]
+    asyncio.run(GeminiProvider("key", "m").complete("s", "u", files))
+    parts = sent["contents"][0]["parts"]
+    assert [p.get("text") for p in parts[:4:2]] == ["File: SOP.pdf", "File: call.txt"]
+    assert parts[1]["inlineData"]["mimeType"] == "application/pdf" and parts[-1] == {"text": "u"}

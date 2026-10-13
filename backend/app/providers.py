@@ -65,6 +65,9 @@ class GitHubModelsProvider:
             raise ProviderError("GitHub Models sent a reply in an unexpected format.") from e
 
 
+GEMINI_TIMEOUT = 300  # seconds; several long files in one request can take minutes (nginx allows 600)
+
+
 class GeminiProvider:
     """Google Gemini API (free tier works). Needs an API key from https://aistudio.google.com/apikey"""
     name = "gemini"
@@ -78,7 +81,10 @@ class GeminiProvider:
         if not self.api_key:
             raise ProviderError("GEMINI_API_KEY is not set. Add it to backend/.env.")
         self.last_thoughts = None
-        files = [{"inlineData": {"mimeType": a.mime, "data": base64.b64encode(a.data).decode("ascii")}} for a in attachments]
+        files = []
+        for a in attachments:  # name each file, so the model can tell the sources apart and cite them
+            files += [{"text": f"File: {a.name}"},
+                      {"inlineData": {"mimeType": a.mime, "data": base64.b64encode(a.data).decode("ascii")}}]
         config = {"temperature": 0.2, "responseMimeType": "application/json"}
         if self.thoughts:
             config["thinkingConfig"] = {"includeThoughts": True}
@@ -88,11 +94,14 @@ class GeminiProvider:
             "generationConfig": config,
         }
         try:
-            async with httpx.AsyncClient(timeout=120) as client:
+            async with httpx.AsyncClient(timeout=GEMINI_TIMEOUT) as client:
                 r = await client.post(f"{self.BASE}/{self.model}:generateContent",
                                       headers={"x-goog-api-key": self.api_key}, json=body)
+        except httpx.TimeoutException as e:
+            raise ProviderError(f"Gemini did not answer within {GEMINI_TIMEOUT} seconds. Try again, or send fewer "
+                                "or shorter files.") from e
         except httpx.HTTPError as e:
-            raise ProviderError(f"Could not reach Gemini: {e}") from e
+            raise ProviderError(f"Could not reach Gemini: {e or type(e).__name__}") from e
         if r.status_code == 429:
             raise ProviderError("Gemini rate limit reached (free tier). Wait a minute and try again.")
         if r.status_code in (400, 401, 403) and "API key" in r.text:

@@ -26,6 +26,27 @@ What to build from:
 - If two parts of the document give steps in a different order, follow the detailed
   procedure and keep going.
 
+Several sources:
+- You may get several files about the same process, for example an SOP, a meeting
+  transcript and a rough process diagram, plus notes typed by the user. Collate them
+  into ONE diagram of that process. Do not draw one diagram per file.
+- Use each kind of source for what it is good at:
+  - formal procedures, SOPs and policies: the authority on the steps, their order,
+    owners and controls;
+  - meeting transcripts, emails and notes: how the work is really done, exceptions,
+    workarounds, recent or planned changes, and owners the formal text leaves out.
+    Ignore small talk and topics unrelated to the process;
+  - diagrams, sketches and screenshots: the overall structure, lanes and branches.
+    A rough sketch may skip steps; fill them in from the other sources.
+- A step, lane or connection that several sources agree on is better supported than
+  one only a single informal source mentions (a remark in a meeting): score it accordingly.
+- When sources disagree, follow the formal procedure, unless another source says the
+  procedure has changed or will change; then follow the newer information. Either way,
+  give the item a confidence of 0.6 or less and say what disagrees in its source_ref,
+  for example "SOP 4.2 says Checker; transcript says Team Lead", so a reviewer settles it.
+- source_ref names the file it came from, for example "SOP.pdf, Step 4.2",
+  "transcript.txt, Mary at 12:40" or "sketch.png".
+
 Level of detail:
 - Cover every stage or numbered section of the procedure. Do not stop at the happy path.
 - Create a separate node for each action that has its own owner, its own outcome, or
