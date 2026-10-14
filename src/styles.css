@@ -134,11 +134,7 @@ button:disabled {
 .topbar-inner {
   width: 100%;
 
-  max-width: 1440px;
-
-  margin: 0 auto;
-
-  padding: 0 34px;
+  padding-inline: clamp(10px, 1.6vw, 24px);
 
   display: flex;
 
@@ -153,11 +149,11 @@ button:disabled {
 
   align-items: center;
 
-  gap: 16px;
+  gap: clamp(8px, 1.2vw, 16px);
 }
 
 .brand-logo {
-  height: 42px;
+  height: clamp(32px, 3.5vw, 42px);
 
   width: auto;
 
@@ -179,7 +175,7 @@ button:disabled {
   color:
     var(--uob-blue-dark);
 
-  font-size: 1rem;
+  font-size: clamp(0.9rem, 1.1vw, 1rem);
 
   font-weight: 650;
 
@@ -1805,13 +1801,40 @@ textarea.amend-text:disabled {
 @media (
   max-width: 900px
 ) {
+  .editor-layout {
+    height: auto;
+
+    min-height:
+      calc(
+        100vh - 88px
+      );
+  }
+
+  .editor-main {
+    flex: none;
+  }
+
   .editor-body {
     flex-direction: column;
+  }
+
+  .editor-frame {
+    flex: none;
+
+    height:
+      min(
+        58vh,
+        560px
+      );
+
+    min-height: 260px;
   }
 
   .amend-panel,
   .amend-panel.collapsed {
     width: 100%;
+
+    flex: none;
 
     border-left: 0;
 
@@ -1820,10 +1843,24 @@ textarea.amend-text:disabled {
       var(--line);
   }
 
+  .amend-panel {
+    height:
+      min(
+        48vh,
+        420px
+      );
+
+    min-height: 280px;
+  }
+
   .amend-panel.collapsed {
     flex-direction: row;
 
     padding: 8px 12px;
+
+    height: 48px;
+
+    min-height: 48px;
   }
 
   .amend-collapsed-label {
@@ -1839,19 +1876,6 @@ textarea.amend-text:disabled {
 @media (
   max-width: 900px
 ) {
-  .topbar-inner {
-    padding:
-      0 22px;
-  }
-
-  .brand-subtitle {
-    display: none;
-  }
-
-  .brand-divider {
-    display: none;
-  }
-
   .topbar-note {
     font-size:
       0.8rem;

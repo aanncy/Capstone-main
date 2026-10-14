@@ -1,6 +1,8 @@
 export type Stage = "reading" | "generating" | "checking" | "drawing";
 export type GenerateInput = { text: string; files: File[] };
 
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
 export const STAGES: { id: Stage; label: string; hint: string }[] = [
   { id: "reading", label: "Reading your document", hint: "Extracting the text" },
   { id: "generating", label: "Drafting the process steps", hint: "Finding steps, owners and decisions" },
@@ -17,18 +19,63 @@ export async function generateDiagram(
   input: GenerateInput,
   onStage: (s: Stage) => void
 ): Promise<{ xml: string }> {
-  onStage("reading");
+  const minimumStageDuration = 500;
   const body = new FormData();
   body.append("text", input.text);
   for (const f of input.files) body.append("files", f);
+
+  onStage("reading");
+  await sleep(minimumStageDuration);
   onStage("generating");
-  const res = await fetch("/api/generate", { method: "POST", body });
-  if (!res.ok) {
-    const detail = await res.json().then((j) => j.detail as string).catch(() => null);
-    throw new Error(detail ?? `The server returned an error (${res.status}).`);
+
+  let estimatedStage: Stage = "generating";
+  let stageStartedAt = Date.now();
+  const checkingTimer = window.setTimeout(() => {
+    estimatedStage = "checking";
+    stageStartedAt = Date.now();
+    onStage("checking");
+  }, 2500);
+  const drawingTimer = window.setTimeout(() => {
+    estimatedStage = "drawing";
+    stageStartedAt = Date.now();
+    onStage("drawing");
+  }, 8000);
+
+  try {
+    const res = await fetch("/api/generate", { method: "POST", body });
+    if (!res.ok) {
+      const detail = await res.json().then((j) => j.detail as string).catch(() => null);
+      throw new Error(detail ?? `The server returned an error (${res.status}).`);
+    }
+
+    const result = (await res.json()) as { xml: string };
+    window.clearTimeout(checkingTimer);
+    window.clearTimeout(drawingTimer);
+
+    if (estimatedStage === "generating") {
+      await sleep(Math.max(0, minimumStageDuration - (Date.now() - stageStartedAt)));
+      estimatedStage = "checking";
+      stageStartedAt = Date.now();
+      onStage("checking");
+      await sleep(minimumStageDuration);
+      estimatedStage = "drawing";
+      stageStartedAt = Date.now();
+      onStage("drawing");
+      await sleep(minimumStageDuration);
+    } else if (estimatedStage === "checking") {
+      estimatedStage = "drawing";
+      stageStartedAt = Date.now();
+      onStage("drawing");
+      await sleep(minimumStageDuration);
+    } else {
+      await sleep(Math.max(0, minimumStageDuration - (Date.now() - stageStartedAt)));
+    }
+
+    return result;
+  } finally {
+    window.clearTimeout(checkingTimer);
+    window.clearTimeout(drawingTimer);
   }
-  onStage("drawing");
-  return (await res.json()) as { xml: string };
 }
 
 /**
