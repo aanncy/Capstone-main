@@ -843,6 +843,202 @@ textarea::placeholder {
 }
 
 /* ======================================================
+   INPUT TABS + HISTORY
+====================================================== */
+
+.input-tabs {
+  width: 100%;
+
+  max-width: 1128px; /* lines up with .creation-inner: 1080px plus the 24px side padding */
+
+  margin: 0 auto 16px;
+
+  padding: 0 24px;
+
+  display: flex;
+
+  gap: 6px;
+}
+
+.input-tabs button {
+  padding: 8px 16px;
+
+  border: 1px solid var(--line);
+
+  border-radius: 999px;
+
+  background: var(--surface);
+
+  color: var(--muted);
+
+  font-weight: 600;
+
+  font-size: 0.92rem;
+}
+
+.input-tabs button:hover {
+  color: var(--uob-blue);
+}
+
+.input-tabs button.active {
+  border-color: var(--uob-blue);
+
+  background: var(--uob-blue-soft);
+
+  color: var(--uob-blue-dark);
+}
+
+.history-section {
+  padding: 0 24px 28px;
+}
+
+.history-inner {
+  width: 100%;
+
+  max-width: 1080px;
+
+  margin: 0 auto;
+}
+
+.history-empty {
+  margin: 0;
+
+  padding: 28px 20px;
+
+  border: 1px dashed var(--line-strong);
+
+  border-radius: 18px;
+
+  background: var(--surface);
+
+  color: var(--muted);
+
+  text-align: center;
+}
+
+.history-list {
+  margin: 0;
+
+  padding: 0;
+
+  list-style: none;
+
+  display: flex;
+
+  flex-direction: column;
+
+  gap: 8px;
+}
+
+.history-row {
+  width: 100%;
+
+  padding: 14px 18px;
+
+  display: grid;
+
+  grid-template-columns: minmax(0, 1fr) auto;
+
+  grid-template-areas:
+    "docs open"
+    "title open"
+    "meta open";
+
+  align-items: center;
+
+  column-gap: 16px;
+
+  row-gap: 2px;
+
+  border: 1px solid var(--line);
+
+  border-radius: 14px;
+
+  background: var(--surface);
+
+  box-shadow: var(--shadow-small);
+
+  text-align: left;
+
+  transition: border-color 0.2s ease;
+}
+
+.history-row:hover:not(:disabled) {
+  border-color: rgba(0, 94, 184, 0.55);
+}
+
+.history-row:disabled {
+  cursor: progress;
+}
+
+.history-docs {
+  grid-area: docs;
+
+  overflow-wrap: anywhere;
+
+  font-weight: 650;
+
+  color: var(--ink);
+}
+
+.history-title {
+  grid-area: title;
+
+  font-size: 0.9rem;
+
+  color: var(--text);
+}
+
+.history-meta {
+  grid-area: meta;
+
+  display: flex;
+
+  flex-wrap: wrap;
+
+  gap: 4px 14px;
+
+  font-size: 0.85rem;
+
+  color: var(--muted);
+
+  font-variant-numeric: tabular-nums;
+}
+
+.history-open {
+  grid-area: open;
+
+  color: var(--uob-blue);
+
+  font-weight: 600;
+
+  font-size: 0.9rem;
+
+  white-space: nowrap;
+}
+
+@media (
+  max-width: 560px
+) {
+  .input-tabs,
+  .history-section {
+    padding-left: 16px;
+
+    padding-right: 16px;
+  }
+
+  .history-row {
+    grid-template-columns: 1fr;
+
+    grid-template-areas:
+      "docs"
+      "title"
+      "meta"
+      "open";
+  }
+}
+
+/* ======================================================
    BUTTONS
 ====================================================== */
 

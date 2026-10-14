@@ -94,3 +94,34 @@ export async function amendDiagram(xml: string, instruction: string): Promise<{ 
   }
   return (await res.json()) as { xml: string };
 }
+
+/** A saved run the History tab can reopen (backend/app/history.py list_runs). */
+export type HistoryRun = {
+  id: string; // "<folder>/<file stem>" under backend/outputs
+  time: string | null;
+  model: string | null; // "provider/model", e.g. "gemini/gemini-3.7-flash"
+  kind: "generate" | "amend";
+  documents: string[];
+  typed: boolean; // a description was typed in as well as (or instead of) files
+  instruction: string; // the change asked for, on amend runs
+  title: string;
+};
+
+async function getJson<T>(url: string): Promise<T> {
+  const res = await fetch(url);
+  if (!res.ok) {
+    const detail = await res.json().then((j) => j.detail as string).catch(() => null);
+    throw new Error(detail ?? `The server returned an error (${res.status}).`);
+  }
+  return (await res.json()) as T;
+}
+
+/** GET /api/history: earlier runs that produced a diagram, newest first. */
+export async function listRuns(): Promise<HistoryRun[]> {
+  return (await getJson<{ runs: HistoryRun[] }>("/api/history")).runs;
+}
+
+/** GET /api/history/<id>: the saved .drawio of one run. */
+export async function openRun(id: string): Promise<{ xml: string }> {
+  return getJson<{ xml: string }>(`/api/history/${id.split("/").map(encodeURIComponent).join("/")}`);
+}

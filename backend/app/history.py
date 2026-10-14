@@ -18,6 +18,12 @@ from .pipeline import parse_json
 log = logging.getLogger("app.history")
 
 DEFAULT_DIR = Path(__file__).resolve().parent.parent / "outputs"
+SAFE_PART = re.compile(r"^[A-Za-z0-9_-][A-Za-z0-9._-]*$")  # a folder or file name save_run made; never "..", never a path
+DOCX_PICTURE = re.compile(r" picture \d+$")  # pictures pulled out of a Word file are sent as extra attachments
+
+
+def _out_dir() -> Path:
+    return Path(os.getenv("OUTPUT_DIR") or DEFAULT_DIR)
 
 
 def _slug(s: str) -> str:
@@ -33,7 +39,7 @@ def save_run(text: str, file_name: str | None, attachments, run: dict, attempts=
         h = hashlib.sha256(text.encode("utf-8"))
         for a in attachments:
             h.update(a.data)
-        folder = Path(os.getenv("OUTPUT_DIR") or DEFAULT_DIR) / f"{_slug(Path(file_name).stem if file_name else 'text')}-{h.hexdigest()[:8]}"
+        folder = _out_dir() / f"{_slug(Path(file_name).stem if file_name else 'text')}-{h.hexdigest()[:8]}"
         folder.mkdir(parents=True, exist_ok=True)
         stem = f"{datetime.now():%Y-%m-%d_%H%M%S}_{_slug(run.get('model') or 'unknown')}" + ("_FAILED" if error else "")
         if xml is not None:
@@ -59,4 +65,41 @@ def save_run(text: str, file_name: str | None, attachments, run: dict, attempts=
         return out
     except (OSError, ET.ParseError) as e:
         log.error("could not save output: %s", e)
+        return None
+
+
+def list_runs(limit: int = 200) -> list[dict]:
+    """Saved runs that produced a diagram, newest first, for the History tab. Failed runs have no .drawio and are left out."""
+    runs = []
+    for drawio in _out_dir().glob("*/*.drawio"):
+        try:
+            saved = json.loads(drawio.with_suffix(".json").read_text(encoding="utf-8"))
+            run = saved["run"]
+        except (OSError, ValueError, KeyError, TypeError):
+            continue
+        amend = drawio.parent.name.startswith("amend-")
+        # runs saved before "files" was recorded: rebuild the uploads from the attachments sent to the AI
+        files = run.get("files") or [a["name"] for a in run.get("attachments", []) if not DOCX_PICTURE.search(a["name"])]
+        runs.append({
+            "id": f"{drawio.parent.name}/{drawio.stem}",
+            "time": run.get("saved_at"),
+            "model": run.get("model"),
+            "kind": "amend" if amend else "generate",
+            "documents": [] if amend else files,
+            "typed": bool((run.get("typed_text") or "").strip()) and not amend,
+            "instruction": (run.get("typed_text") or "")[:200] if amend else "",
+            "title": (saved.get("diagram") or {}).get("title", ""),
+        })
+    runs.sort(key=lambda r: r["time"] or "", reverse=True)
+    return runs[:limit]
+
+
+def load_run(folder: str, stem: str) -> str | None:
+    """The draw.io XML of one saved run, or None if there is no such run."""
+    if not (SAFE_PART.match(folder) and SAFE_PART.match(stem)):
+        return None
+    path = _out_dir() / folder / f"{stem}.drawio"
+    try:
+        return path.read_text(encoding="utf-8")
+    except OSError:
         return None

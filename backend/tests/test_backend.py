@@ -190,6 +190,30 @@ def test_runs_are_saved_side_by_side_per_input(tmp_path, monkeypatch):
     assert meta["run"]["attempts"][0]["problems"] == ["not JSON"] and meta["diagram"]["title"] == "Payment request"
 
 
+
+def test_history_lists_runs_with_a_diagram_and_reopens_them(tmp_path, monkeypatch):
+    from app.extract import Attachment
+    from app.history import save_run
+    from app.schema import Diagram
+    monkeypatch.setenv("SAVE_OUTPUTS", "true")
+    monkeypatch.setenv("OUTPUT_DIR", str(tmp_path))
+    d = Diagram.model_validate(GOOD)
+    word = [Attachment("sop.docx", "text/plain", b"steps"), Attachment("sop.docx picture 3", "image/png", b"png")]
+    save_run("notes", "sop.docx", word, {"model": "gemini/flash"}, (), d, to_drawio_xml(d))  # saved before "files"
+    save_run("", "a +1 more", [], {"files": ["a.pdf", "b.txt"], "model": "gemini/pro"}, (), error="gave up")
+    (tmp_path / "secret.drawio").write_text("<mxfile/>")  # outside any run folder: never served
+
+    client = TestClient(app)
+    runs = client.get("/api/history").json()["runs"]
+    assert len(runs) == 1  # the failed run has no diagram to open
+    run = runs[0]
+    assert run["documents"] == ["sop.docx"] and run["typed"] and run["model"] == "gemini/flash"
+    assert run["kind"] == "generate" and run["title"] == "Payment request" and run["time"]
+    assert "<mxfile" in client.get(f"/api/history/{run['id']}").json()["xml"]
+    assert client.get("/api/history/nope/nope").status_code == 404
+    assert client.get("/api/history/..%2F/secret").status_code == 404
+    assert client.get("/api/history/./secret").status_code == 404
+
 def test_gemini_thoughts_are_kept_out_of_the_answer(monkeypatch):
     import httpx
     from app.providers import GeminiProvider

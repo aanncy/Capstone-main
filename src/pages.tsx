@@ -4,10 +4,10 @@ import type { DragEvent } from "react";
 import DrawioEditor from "./DrawioEditor";
 import type { EditorHandle } from "./DrawioEditor";
 
-import { STAGES, amendDiagram } from "./api";
+import { STAGES, amendDiagram, listRuns, openRun } from "./api";
 import { findFlags, findSkipped, markReviewed } from "./review";
 import type { Box, Flag, Skipped } from "./review";
-import type { GenerateInput, Stage } from "./api";
+import type { GenerateInput, HistoryRun, Stage } from "./api";
 
 import { SAMPLE_TEXT } from "./sampleDiagram";
 
@@ -25,9 +25,12 @@ const formatSize = (bytes: number) =>
 
 export function InputPage({
   onGenerate,
+  onOpen,
 }: {
   onGenerate: (i: GenerateInput) => void;
+  onOpen: (xml: string) => void;
 }) {
+  const [tab, setTab] = useState<"new" | "history">("new");
   const [text, setText] = useState("");
   const [files, setFiles] = useState<File[]>([]);
   const [over, setOver] = useState(false);
@@ -83,7 +86,34 @@ export function InputPage({
         </p>
       </section>
 
-      <section className="creation-section">
+      <div className="input-tabs" role="tablist" aria-label="Create or reopen a diagram">
+        <button
+          type="button"
+          role="tab"
+          id="tab-new"
+          aria-selected={tab === "new"}
+          aria-controls="panel-new"
+          className={tab === "new" ? "active" : ""}
+          onClick={() => setTab("new")}
+        >
+          New diagram
+        </button>
+        <button
+          type="button"
+          role="tab"
+          id="tab-history"
+          aria-selected={tab === "history"}
+          aria-controls="panel-history"
+          className={tab === "history" ? "active" : ""}
+          onClick={() => setTab("history")}
+        >
+          History
+        </button>
+      </div>
+
+      {tab === "history" && <HistoryList onOpen={onOpen} />}
+
+      <section className="creation-section" id="panel-new" role="tabpanel" aria-labelledby="tab-new" hidden={tab !== "new"}>
         <div className="creation-inner">
           <div className="textarea-shell">
             <div className="textarea-head">
@@ -192,6 +222,98 @@ export function InputPage({
         </div>
       </section>
     </div>
+  );
+}
+
+/* ---------------------------------------------------------------- History */
+
+const formatRunTime = (iso: string | null) =>
+  iso
+    ? new Date(iso).toLocaleString(undefined, {
+        day: "numeric",
+        month: "short",
+        year: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+      })
+    : "Unknown time";
+
+// "gemini/gemini-3.7-flash" -> "gemini-3.7-flash"; the provider is implied by the model name
+const formatModel = (model: string | null) =>
+  model ? model.split("/").slice(1).join("/") || model : "Unknown model";
+
+function runSources(run: HistoryRun): string {
+  if (run.kind === "amend") return `Change: ${run.instruction || run.title}`;
+  const parts = [...run.documents];
+  if (run.typed) parts.push("Typed description");
+  return parts.join(", ") || "Typed description";
+}
+
+function HistoryList({ onOpen }: { onOpen: (xml: string) => void }) {
+  const [runs, setRuns] = useState<HistoryRun[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [opening, setOpening] = useState<string | null>(null);
+
+  useEffect(() => {
+    listRuns()
+      .then(setRuns)
+      .catch((e) => setError(e instanceof Error ? e.message : "Could not load earlier runs."));
+  }, []);
+
+  const open = async (id: string) => {
+    setOpening(id);
+    setError(null);
+    try {
+      onOpen((await openRun(id)).xml);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not open this run.");
+      setOpening(null);
+    }
+  };
+
+  return (
+    <section className="history-section" id="panel-history" role="tabpanel" aria-labelledby="tab-history">
+      <div className="history-inner">
+        {error && (
+          <p className="upload-note err" role="alert">
+            {error}
+          </p>
+        )}
+
+        {!runs && !error && <p className="history-empty">Loading earlier runs…</p>}
+
+        {runs && runs.length === 0 && (
+          <p className="history-empty">
+            No saved runs yet. Diagrams you create are listed here so you can reopen them.
+          </p>
+        )}
+
+        {runs && runs.length > 0 && (
+          <ul className="history-list">
+            {runs.map((run) => (
+              <li key={run.id}>
+                <button
+                  type="button"
+                  className="history-row"
+                  disabled={opening !== null}
+                  onClick={() => open(run.id)}
+                >
+                  <span className="history-docs">{runSources(run)}</span>
+                  {run.title && <span className="history-title">{run.title}</span>}
+                  <span className="history-meta">
+                    <time dateTime={run.time ?? undefined}>{formatRunTime(run.time)}</time>
+                    <span>{formatModel(run.model)}</span>
+                  </span>
+                  <span className="history-open" aria-hidden="true">
+                    {opening === run.id ? "Opening…" : "Open →"}
+                  </span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    </section>
   );
 }
 

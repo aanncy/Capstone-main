@@ -15,7 +15,7 @@ setup_logging()
 log = logging.getLogger("app.main")
 
 from .convert import to_drawio_xml  # noqa: E402
-from .history import save_run  # noqa: E402
+from .history import list_runs, load_run, save_run  # noqa: E402
 from .extract import MAX_FILE_BYTES, MAX_FILES, Attachment, ExtractError, read_upload  # noqa: E402
 from .pipeline import PipelineError, amend_diagram, generate_diagram  # noqa: E402
 from .read_drawio import DrawioError, from_drawio_xml  # noqa: E402
@@ -43,6 +43,20 @@ def get_provider() -> ProviderChain:
 @app.get("/api/health")
 def health():
     return {"ok": True}
+
+
+@app.get("/api/history")
+def history():
+    """Earlier runs that produced a diagram, newest first."""
+    return {"runs": list_runs()}
+
+
+@app.get("/api/history/{folder}/{stem}")
+def history_run(folder: str, stem: str):
+    xml = load_run(folder, stem)
+    if xml is None:
+        raise HTTPException(status_code=404, detail="This run could not be found. It may have been deleted.")
+    return {"xml": xml}
 
 
 @app.post("/api/generate")
@@ -82,7 +96,7 @@ async def generate(
 
     def save(**kw):
         save_run(text, label, attachments, attempts=attempts, run={
-            "model": getattr(provider, "used", None), "model_calls": getattr(provider, "calls", None),
+            "files": names, "model": getattr(provider, "used", None), "model_calls": getattr(provider, "calls", None),
             "seconds": round(time.monotonic() - start, 1)}, **kw)
 
     try:
