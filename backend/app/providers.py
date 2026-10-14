@@ -20,7 +20,7 @@ def text_only(user: str, attachments, provider: str) -> str:
     for a in attachments:
         if not a.is_text:
             raise ProviderError(f"{provider} cannot read {a.mime} files. Set PROVIDERS=gemini in backend/.env.")
-    texts = [f"--- {a.name} ---\n{a.data.decode('utf-8', errors='replace')}" for a in attachments]
+    texts = [f"SOURCE {i}: {a.name}\n{a.data.decode('utf-8', errors='replace')}" for i, a in enumerate(attachments, 1)]
     return "\n\n".join(texts + [user])
 
 
@@ -77,22 +77,35 @@ class GeminiProvider:
         self.api_key, self.model, self.thoughts = api_key, model, thoughts
         self.last_thoughts = None  # Gemini's summary of its reasoning for the last reply (if thoughts is on)
 
-    async def complete(self, system: str, user: str, attachments=()) -> str:
+    accepts_schema = True  # structured output: Gemini's reply is held to a JSON schema
+
+    async def complete(self, system: str, user: str, attachments=(), schema: dict | None = None) -> str:
         if not self.api_key:
             raise ProviderError("GEMINI_API_KEY is not set. Add it to backend/.env.")
         self.last_thoughts = None
         files = []
-        for a in attachments:  # name each file, so the model can tell the sources apart and cite them
-            files += [{"text": f"File: {a.name}"},
+        for i, a in enumerate(attachments, 1):  # label each source, so the model can tell them apart and cite them
+            files += [{"text": f"SOURCE {i}: {a.name}"},
                       {"inlineData": {"mimeType": a.mime, "data": base64.b64encode(a.data).decode("ascii")}}]
         config = {"temperature": 0.2, "responseMimeType": "application/json"}
         if self.thoughts:
             config["thinkingConfig"] = {"includeThoughts": True}
+        if schema:
+            config["responseJsonSchema"] = schema
         body = {
             "systemInstruction": {"parts": [{"text": system}]},
             "contents": [{"role": "user", "parts": files + [{"text": user}]}],
             "generationConfig": config,
         }
+        r = await self._post(body)
+        if r.status_code == 400 and schema and "API key" not in r.text:
+            # a model that cannot take this schema: ask again without it (the prompt describes the format too)
+            log.warning("gemini rejected the response schema, retrying without it: %s", r.text[:200])
+            del config["responseJsonSchema"]
+            r = await self._post(body)
+        return self._read(r)
+
+    async def _post(self, body: dict) -> httpx.Response:
         try:
             async with httpx.AsyncClient(timeout=GEMINI_TIMEOUT) as client:
                 r = await client.post(f"{self.BASE}/{self.model}:generateContent",
@@ -102,6 +115,9 @@ class GeminiProvider:
                                 "or shorter files.") from e
         except httpx.HTTPError as e:
             raise ProviderError(f"Could not reach Gemini: {e or type(e).__name__}") from e
+        return r
+
+    def _read(self, r: httpx.Response) -> str:
         if r.status_code == 429:
             raise ProviderError("Gemini rate limit reached (free tier). Wait a minute and try again.")
         if r.status_code in (400, 401, 403) and "API key" in r.text:
@@ -168,14 +184,17 @@ class ProviderChain:
         self.used = None  # "provider/model" that gave the last answer
         self.thoughts = None  # reasoning summary for the last answer, if that provider gives one
 
-    async def complete(self, system: str, user: str, attachments=()) -> str:
+    accepts_schema = True  # passed on to the providers that support structured output
+
+    async def complete(self, system: str, user: str, attachments=(), schema: dict | None = None) -> str:
         problems = []
         self.calls += 1
         self.thoughts = None
         for p in self.providers:
             start = time.monotonic()
             try:
-                reply = await p.complete(system, user, attachments)
+                kw = {"schema": schema} if schema and getattr(p, "accepts_schema", False) else {}
+                reply = await p.complete(system, user, attachments, **kw)
             except ProviderError as e:
                 log.warning("%s failed after %.1fs: %s", p.name, time.monotonic() - start, e)
                 problems.append(f"{p.name}: {e}")

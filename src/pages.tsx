@@ -5,8 +5,8 @@ import DrawioEditor from "./DrawioEditor";
 import type { EditorHandle } from "./DrawioEditor";
 
 import { STAGES, amendDiagram } from "./api";
-import { findFlags, markReviewed } from "./review";
-import type { Flag } from "./review";
+import { findFlags, findSkipped, markReviewed } from "./review";
+import type { Flag, Skipped } from "./review";
 import type { GenerateInput, Stage } from "./api";
 
 import { SAMPLE_TEXT } from "./sampleDiagram";
@@ -350,15 +350,22 @@ export function EditorPage({
       setLatest(x);
     }, []);
 
-  // low-confidence steps and lanes, kept in step with the editor
+  // what needs review (weakly supported items, conflicts, open questions), kept in step with the editor
   const [flags, setFlags] =
     useState<Flag[]>([]);
+
+  const [skipped, setSkipped] =
+    useState<Skipped[]>([]);
 
   useEffect(() => {
     let current = true;
 
     findFlags(latest).then((f) => {
       if (current) setFlags(f);
+    });
+
+    findSkipped(latest).then((s) => {
+      if (current) setSkipped(s);
     });
 
     return () => {
@@ -444,6 +451,7 @@ export function EditorPage({
 
           <AmendPanel
             flags={flags}
+            skipped={skipped}
             onClearFlags={clearFlags}
             onApply={async (instruction) => {
               const result =
@@ -469,10 +477,12 @@ export function EditorPage({
  */
 function AmendPanel({
   flags,
+  skipped,
   onClearFlags,
   onApply,
 }: {
   flags: Flag[];
+  skipped: Skipped[];
   onClearFlags: (ids: string[]) => Promise<void>;
   onApply: (instruction: string) => Promise<void>;
 }) {
@@ -577,6 +587,7 @@ function AmendPanel({
       <div className="amend-body">
         <ReviewList
           flags={flags}
+          skipped={skipped}
           disabled={busy || clearing}
           onClear={clear}
         />
@@ -650,17 +661,20 @@ function AmendPanel({
 }
 
 /**
- * Steps, lanes and connections the AI was unsure about (confidence under 0.7):
- * yellow from 0.4 to under 0.7, red under 0.4.
+ * What a person should check before the diagram is used:
+ * - steps, lanes and connections the AI classified as "guess" (red) or "implied" (yellow);
+ * - places where the sources disagree (red) and questions the sources leave open (yellow).
  * The tick on an item marks just that one as reviewed; "Mark all as reviewed" does every item.
- * Reviewed items get confidence 1 and leave the list.
+ * Below the list, the sections of the sources the AI read but left out on purpose.
  */
 function ReviewList({
   flags,
+  skipped,
   disabled,
   onClear,
 }: {
   flags: Flag[];
+  skipped: Skipped[];
   disabled: boolean;
   onClear: (ids: string[]) => void;
 }) {
@@ -683,14 +697,14 @@ function ReviewList({
         {flags.length > 0 && (
           <span className="review-count">
             {flags.length}
-            {red > 0 && ` (${red} low)`}
+            {red > 0 && ` (${red} urgent)`}
           </span>
         )}
       </div>
 
       {flags.length === 0 ? (
         <p className="review-empty">
-          No low-confidence steps, lanes or connections.
+          Nothing to review: no guessed or implied items, conflicts or open questions.
         </p>
       ) : (
         <>
@@ -699,15 +713,20 @@ function ReviewList({
               <li
                 key={f.id}
                 className={`review-item ${f.level}`}
-                title={`${f.kind} ${f.id}: confidence ${f.confidence}`}
               >
                 <span className="review-text">
                   <span className="review-label">
                     {f.label}
                   </span>
 
+                  {f.detail && (
+                    <span className="review-detail">
+                      {f.detail}
+                    </span>
+                  )}
+
                   <span className="review-meta">
-                    {f.kind} · {Math.round(f.confidence * 100)}%
+                    {f.kind} · {f.category}
                   </span>
                 </span>
 
@@ -734,6 +753,24 @@ function ReviewList({
             Mark all as reviewed
           </button>
         </>
+      )}
+
+      {skipped.length > 0 && (
+        <details className="review-skipped">
+          <summary>
+            Left out on purpose ({skipped.length})
+          </summary>
+
+          <ul>
+            {skipped.map((x, i) => (
+              <li key={i}>
+                <strong>{x.section}</strong>
+                {x.source && ` (${x.source})`}
+                {x.reason && `: ${x.reason}`}
+              </li>
+            ))}
+          </ul>
+        </details>
       )}
     </section>
   );

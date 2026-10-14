@@ -1645,6 +1645,38 @@ textarea::placeholder {
     var(--err);
 }
 
+.review-detail {
+  font-size: 0.78rem;
+
+  color:
+    var(--text);
+
+  overflow-wrap: anywhere;
+}
+
+.review-skipped {
+  font-size: 0.8rem;
+
+  color:
+    var(--muted);
+}
+
+.review-skipped summary {
+  cursor: pointer;
+
+  font-weight: 600;
+}
+
+.review-skipped ul {
+  margin: 6px 0 0;
+
+  padding-left: 18px;
+
+  max-height: 160px;
+
+  overflow-y: auto;
+}
+
 .review-clear {
   width: 100%;
 

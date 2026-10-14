@@ -1,8 +1,10 @@
 """draw.io XML -> Diagram JSON, so a diagram the user has edited in draw.io can go back to the AI for amending.
-Reads what to_drawio_xml writes (node_type, source_ref and confidence on every step), and also copes with
+Reads what to_drawio_xml writes (node_type, source_ref, support and sources on every lane, step and arrow, and the
+conflicts, open questions and skipped sections on the root cell), and also copes with
 shapes and arrows drawn by hand in the editor: their type is guessed from the shape, their lane from the
 swimlane they sit in."""
 import base64
+import json
 import html
 import re
 import zlib
@@ -10,7 +12,7 @@ import xml.etree.ElementTree as ET
 from typing import get_args
 from urllib.parse import unquote
 
-from .schema import Diagram, NodeType
+from .schema import Diagram, NodeType, Support
 
 
 class DrawioError(Exception):
@@ -18,6 +20,19 @@ class DrawioError(Exception):
 
 
 NODE_TYPES = set(get_args(NodeType))
+SUPPORT = set(get_args(Support))
+
+
+def _support(attrs: dict) -> dict:
+    """The support category and sources stored on a cell. Older diagrams stored a confidence number instead
+    (converted by the schema). Lanes, steps and arrows drawn by hand were made by a person, so count as reviewed."""
+    sources = [x.strip() for x in attrs.get("sources", "").split(";") if x.strip()]
+    if attrs.get("support") in SUPPORT:
+        return {"support": attrs["support"], "sources": sources}
+    try:
+        return {"confidence": min(max(float(attrs["confidence"]), 0.0), 1.0), "sources": sources}
+    except (KeyError, ValueError):
+        return {"support": "reviewed", "sources": sources}
 # For shapes drawn by hand: first match wins, so specific shapes come before general ones
 TYPE_BY_STYLE = [
     ("rhombus", "decision"), ("flowchart.decision", "decision"),
@@ -120,11 +135,7 @@ def from_drawio_xml(xml: str) -> Diagram:
         a = cells[i][0]
         if a.get("source") in nodes and a.get("target") in nodes:
             label = " ".join(filter(None, [_text(a["label"])] + edge_labels.get(i, [])))
-            try:
-                confidence = min(max(float(a.get("confidence", "")), 0.0), 1.0)
-            except ValueError:
-                confidence = 1.0  # an arrow drawn by hand in the editor
-            edges.append({"from": a["source"], "to": a["target"], "label": label, "confidence": confidence})
+            edges.append({"id": i, "from": a["source"], "to": a["target"], "label": label, **_support(a)})
     has_in = {e["to"] for e in edges}
     has_out = {e["from"] for e in edges}
 
@@ -146,24 +157,20 @@ def from_drawio_xml(xml: str) -> Diagram:
     for i in node_ids:
         a = cells[i][0]
         ours = "node_type" in a
-        try:
-            confidence = min(max(float(a.get("confidence", "")), 0.0), 1.0)
-        except ValueError:
-            confidence = 0.8 if ours else 1.0
         out_nodes.append({"id": i, "type": node_type(i), "label": _text(a["label"]), "lane": lane_of(i),
-                          "source_ref": a.get("source_ref", "" if ours else "Added in the editor"),
-                          "confidence": confidence})
-    def lane_confidence(i):
-        try:
-            return min(max(float(cells[i][0].get("confidence", "")), 0.0), 1.0)
-        except ValueError:
-            return 1.0  # a lane drawn by hand in the editor
-    lane_list = [{"id": lanes[i], "name": _text(cells[i][0]["label"]) or lanes[i], "confidence": lane_confidence(i)}
+                          "source_ref": a.get("source_ref", "" if ours else "Added in the editor"), **_support(a)})
+    lane_list = [{"id": lanes[i], "name": _text(cells[i][0]["label"]) or lanes[i], **_support(cells[i][0])}
                  for i in lane_ids]
     if any(n["lane"] == "unassigned" for n in out_nodes) and "unassigned" not in lanes.values():
-        lane_list.append({"id": "unassigned", "name": "Unassigned"})
+        lane_list.append({"id": "unassigned", "name": "Unassigned", "support": "guess"})
+    extra = {}  # conflicts, open questions and skipped sections, kept on the root cell
+    for key in ("conflicts", "open_questions", "skipped_sections"):
+        try:
+            extra[key] = json.loads(cells.get("0", ({}, None))[0].get(key) or "[]")
+        except ValueError:
+            extra[key] = []
     page = ET.fromstring(xml).find("diagram") if xml.lstrip().startswith("<mxfile") else None
     title = (page.get("name") if page is not None else None) or "Process"
     if not out_nodes:
         raise DrawioError("The diagram has no steps to amend.")
-    return Diagram.model_validate({"title": title, "lanes": lane_list, "nodes": out_nodes, "edges": edges})
+    return Diagram.model_validate({"title": title, "lanes": lane_list, "nodes": out_nodes, "edges": edges, **extra})
