@@ -15,6 +15,7 @@ and sends it to a draw.io editor in the browser, where people review, amend and 
    - **red**: guesses, and places where the sources disagree (with what each says and which version was drawn);
    - **yellow**: implied items, and questions the sources leave open.
 
+   Click an item to zoom the editor onto it (**Show whole diagram** zooms back out).
    Implied and guessed connections are also drawn **dashed**. Check each item, then click its **✓**
    (or **Mark all as reviewed**): it becomes **reviewed** and leaves the list. Under the list,
    **Left out on purpose** shows the sections of the sources the AI read but did not draw (document control,

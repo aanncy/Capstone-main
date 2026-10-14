@@ -6,7 +6,7 @@ import type { EditorHandle } from "./DrawioEditor";
 
 import { STAGES, amendDiagram } from "./api";
 import { findFlags, findSkipped, markReviewed } from "./review";
-import type { Flag, Skipped } from "./review";
+import type { Box, Flag, Skipped } from "./review";
 import type { GenerateInput, Stage } from "./api";
 
 import { SAMPLE_TEXT } from "./sampleDiagram";
@@ -452,6 +452,8 @@ export function EditorPage({
           <AmendPanel
             flags={flags}
             skipped={skipped}
+            onShow={(area) => editor.current?.showArea(area)}
+            onShowAll={() => editor.current?.showAll()}
             onClearFlags={clearFlags}
             onApply={async (instruction) => {
               const result =
@@ -478,11 +480,15 @@ export function EditorPage({
 function AmendPanel({
   flags,
   skipped,
+  onShow,
+  onShowAll,
   onClearFlags,
   onApply,
 }: {
   flags: Flag[];
   skipped: Skipped[];
+  onShow: (area: Box) => void;
+  onShowAll: () => void;
   onClearFlags: (ids: string[]) => Promise<void>;
   onApply: (instruction: string) => Promise<void>;
 }) {
@@ -588,6 +594,8 @@ function AmendPanel({
         <ReviewList
           flags={flags}
           skipped={skipped}
+          onShow={onShow}
+          onShowAll={onShowAll}
           disabled={busy || clearing}
           onClear={clear}
         />
@@ -664,22 +672,38 @@ function AmendPanel({
  * What a person should check before the diagram is used:
  * - steps, lanes and connections the AI classified as "guess" (red) or "implied" (yellow);
  * - places where the sources disagree (red) and questions the sources leave open (yellow).
- * The tick on an item marks just that one as reviewed; "Mark all as reviewed" does every item.
+ * Clicking an item zooms the editor onto it. The tick on an item marks just that one as reviewed;
+ * "Mark all as reviewed" does every item.
  * Below the list, the sections of the sources the AI read but left out on purpose.
  */
 function ReviewList({
   flags,
   skipped,
   disabled,
+  onShow,
+  onShowAll,
   onClear,
 }: {
   flags: Flag[];
   skipped: Skipped[];
   disabled: boolean;
+  onShow: (area: Box) => void;
+  onShowAll: () => void;
   onClear: (ids: string[]) => void;
 }) {
   const red =
     flags.filter((f) => f.level === "red").length;
+
+  // the item last shown in the editor, highlighted in the list
+  const [active, setActive] =
+    useState<string | null>(null);
+
+  const show = (f: Flag) => {
+    if (!f.area) return;
+
+    setActive(f.id);
+    onShow(f.area);
+  };
 
   return (
     <section
@@ -712,9 +736,15 @@ function ReviewList({
             {flags.map((f) => (
               <li
                 key={f.id}
-                className={`review-item ${f.level}`}
+                className={`review-item ${f.level}${active === f.id ? " active" : ""}`}
               >
-                <span className="review-text">
+                <button
+                  type="button"
+                  className="review-text"
+                  disabled={!f.area}
+                  onClick={() => show(f)}
+                  title={f.area ? "Show in the diagram" : "Not linked to a place in the diagram"}
+                >
                   <span className="review-label">
                     {f.label}
                   </span>
@@ -728,7 +758,7 @@ function ReviewList({
                   <span className="review-meta">
                     {f.kind} · {f.category}
                   </span>
-                </span>
+                </button>
 
                 <button
                   type="button"
@@ -744,14 +774,27 @@ function ReviewList({
             ))}
           </ul>
 
-          <button
-            type="button"
-            className="secondary review-clear"
-            disabled={disabled}
-            onClick={() => onClear(flags.map((f) => f.id))}
-          >
-            Mark all as reviewed
-          </button>
+          <div className="review-actions">
+            <button
+              type="button"
+              className="secondary review-clear"
+              disabled={disabled}
+              onClick={() => onClear(flags.map((f) => f.id))}
+            >
+              Mark all as reviewed
+            </button>
+
+            <button
+              type="button"
+              className="secondary review-clear"
+              onClick={() => {
+                setActive(null);
+                onShowAll();
+              }}
+            >
+              Show whole diagram
+            </button>
+          </div>
         </>
       )}
 

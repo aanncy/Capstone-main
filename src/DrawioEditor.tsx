@@ -4,7 +4,14 @@ export const DRAWIO_URL: string =
   (import.meta.env.VITE_DRAWIO_URL as string | undefined) ?? "http://localhost:8080";
 const SRC = `${DRAWIO_URL}/?embed=1&proto=json&spin=1&saveAndExit=0&noSaveBtn=1&noExitBtn=1`;
 
-export type EditorHandle = { exportPng: () => void };
+export type Area = { x: number; y: number; width: number; height: number };
+export type EditorHandle = {
+  exportPng: () => void;
+  /** Zoom and scroll so this part of the diagram (diagram coordinates) fills the editor. */
+  showArea: (area: Area) => void;
+  /** Zoom out to the whole diagram. */
+  showAll: () => void;
+};
 type Props = { xml: string; onChange?: (xml: string) => void };
 
 function download(href: string, name: string) {
@@ -28,6 +35,9 @@ const DrawioEditor = forwardRef<EditorHandle, Props>(function DrawioEditor({ xml
 
   useImperativeHandle(ref, () => ({
     exportPng: () => post({ action: "export", format: "png", spin: "Exporting" }),
+    // draw.io's embed protocol cannot select a cell, but "viewbox" fits a region of the diagram to the window
+    showArea: (area: Area) => post({ action: "viewbox", viewbox: { ...area, border: 24 } }),
+    showAll: () => post({ action: "fit", border: 20 }),
   }));
 
   // Listen for draw.io events

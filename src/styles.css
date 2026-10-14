@@ -1588,6 +1588,49 @@ textarea::placeholder {
   gap: 2px;
 }
 
+button.review-text {
+  padding: 0;
+
+  border: 0;
+
+  background:
+    transparent;
+
+  text-align: left;
+
+  font: inherit;
+
+  cursor: pointer;
+}
+
+button.review-text:disabled {
+  cursor: default;
+}
+
+button.review-text:hover:not(:disabled) .review-label,
+button.review-text:focus-visible .review-label {
+  color:
+    var(--uob-blue);
+
+  text-decoration: underline;
+}
+
+.review-item.active {
+  box-shadow:
+    0 0 0 2px
+    var(--uob-blue);
+}
+
+.review-actions {
+  display: flex;
+
+  gap: 8px;
+}
+
+.review-actions .review-clear {
+  flex: 1;
+}
+
 .review-tick {
   flex-shrink: 0;
 
