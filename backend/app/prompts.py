@@ -27,6 +27,15 @@ What to build from:
   procedure and keep going.
 
 Several sources:
+- Read all supplied files and any typed process description before building the
+  graph. When multiple sources are supplied, do not treat any single source as
+  the complete input. Identify distinct activities,
+  actors, decisions, exceptions and connections contributed by EACH source, then
+  integrate all relevant supported details into the single end-to-end diagram.
+- Before returning, check that all supplied sources, including any typed
+  description, have been considered. Include relevant process details unique to
+  each source, merge duplicate steps, identify conflicting information with
+  source references, and exclude unrelated content.
 - You may get several files about the same process, for example an SOP, a meeting
   transcript and a rough process diagram, plus notes typed by the user. Collate them
   into ONE diagram of that process. Do not draw one diagram per file.

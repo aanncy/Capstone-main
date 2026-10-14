@@ -38,10 +38,18 @@ export function InputPage({
   // several sources about one process (an SOP, a meeting transcript, a rough diagram...) are collated into one diagram
   const addFiles = (list: FileList | null) => {
     if (!list) return;
+    // FileList belongs to the input/drop event. Snapshot it before the input
+    // is reset: React may run the state updater after that reset clears it.
+    const incoming = Array.from(list);
 
     setFiles((current) => {
       const seen = new Set(current.map((f) => `${f.name}/${f.size}`));
-      const added = Array.from(list).filter((f) => !seen.has(`${f.name}/${f.size}`));
+      const added = incoming.filter((f) => {
+        const key = `${f.name}/${f.size}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
 
       return [...current, ...added].slice(0, MAX_FILES);
     });

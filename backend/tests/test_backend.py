@@ -329,6 +329,34 @@ def test_several_files_are_collated_in_one_request(monkeypatch):
     app.dependency_overrides.clear()
 
 
+def test_all_inputs_reach_generation_and_fix_rounds():
+    bad = json.loads(json.dumps(GOOD))
+    bad["edges"] = bad["edges"][:-1]
+    fake = Fake(json.dumps(bad), json.dumps(GOOD))
+    prompts = []
+    complete = fake.complete
+
+    async def capture(system, user, attachments=()):
+        prompts.append(user)
+        return await complete(system, user, attachments)
+
+    fake.complete = capture
+    app.dependency_overrides[get_provider] = lambda: fake
+    sources = [("files", ("procedure.pdf", b"%PDF procedure")),
+               ("files", ("changes.txt", b"Add compliance review")),
+               ("files", ("flow.png", b"image source"))]
+    try:
+        response = TestClient(app).post("/api/generate", data={"text": "Include reconciliation"}, files=sources)
+        assert response.status_code == 200 and fake.calls == 2
+        for prompt, attachments in zip(prompts, fake.attachments):
+            assert "Include reconciliation" in prompt
+            assert [a.name for a in attachments] == ["procedure.pdf", "changes.txt", "flow.png"]
+            assert [a.data for a in attachments] == [b"%PDF procedure", b"Add compliance review", b"image source"]
+            assert all(name in prompt for name in ["procedure.pdf", "changes.txt", "flow.png"])
+    finally:
+        app.dependency_overrides.clear()
+
+
 def test_text_limit_depends_on_the_provider(monkeypatch):
     from app.main import max_chars
     monkeypatch.delenv("MAX_INPUT_CHARS", raising=False)
