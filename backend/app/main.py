@@ -1,4 +1,5 @@
 import logging
+import os
 import time
 
 from dotenv import load_dotenv
@@ -14,17 +15,25 @@ setup_logging()
 log = logging.getLogger("app.main")
 
 from .convert import to_drawio_xml  # noqa: E402
-from .history import save_run  # noqa: E402
-from .extract import Attachment, ExtractError, read_upload  # noqa: E402
+from .history import list_runs, load_run, save_run  # noqa: E402
+from .extract import MAX_FILE_BYTES, MAX_FILES, Attachment, ExtractError, read_upload  # noqa: E402
 from .pipeline import PipelineError, amend_diagram, generate_diagram  # noqa: E402
 from .read_drawio import DrawioError, from_drawio_xml  # noqa: E402
 from .providers import ProviderChain, ProviderError, build_providers_from_env  # noqa: E402
 
-MAX_CHARS = 15000  # long-document chunking is not built yet
 MAX_INSTRUCTION = 2000
 
 app = FastAPI(title="Process Flow backend")
 app.add_middleware(CORSMiddleware, allow_origins=["http://localhost:5173"], allow_methods=["*"], allow_headers=["*"])
+
+
+def max_chars() -> int:
+    """Most characters of text (typed plus text files) one request may carry. Gemini reads long inputs (about
+    4 characters per token, 1M-token context); GitHub Models' free tier takes only about 8,000 tokens."""
+    if os.getenv("MAX_INPUT_CHARS"):
+        return int(os.environ["MAX_INPUT_CHARS"])
+    first = os.getenv("PROVIDERS", "github_models").split(",")[0].strip()
+    return 300_000 if first == "gemini" else 15_000
 
 
 def get_provider() -> ProviderChain:
@@ -36,32 +45,58 @@ def health():
     return {"ok": True}
 
 
+@app.get("/api/history")
+def history():
+    """Earlier runs that produced a diagram, newest first."""
+    return {"runs": list_runs()}
+
+
+@app.get("/api/history/{folder}/{stem}")
+def history_run(folder: str, stem: str):
+    xml = load_run(folder, stem)
+    if xml is None:
+        raise HTTPException(status_code=404, detail="This run could not be found. It may have been deleted.")
+    return {"xml": xml}
+
+
 @app.post("/api/generate")
 async def generate(
     text: str = Form(""),
-    file: UploadFile | None = File(None),
+    files: list[UploadFile] = File([]),  # several sources about one process: SOP, transcript, rough diagram...
+    file: UploadFile | None = File(None),  # older single-file form field, still accepted
     provider: ProviderChain = Depends(get_provider),
 ):
-    log.info("generate: text=%d chars, file=%r", len(text), file.filename if file else None)
+    uploads = [f for f in files + ([file] if file else []) if f.filename]
+    names = [f.filename for f in uploads]
+    log.info("generate: text=%d chars, files=%r", len(text), names)
+    if len(uploads) > MAX_FILES:
+        raise HTTPException(status_code=400, detail=f"Upload at most {MAX_FILES} files at once.")
     attachments = []
-    if file is not None and file.filename:
+    for f in uploads:
         try:
-            attachments = await read_upload(file)
+            attachments += await read_upload(f)
         except ExtractError as e:
-            log.warning("upload rejected for %r: %s", file.filename, e)
-            raise HTTPException(status_code=400, detail=str(e))
+            log.warning("upload rejected for %r: %s", f.filename, e)
+            raise HTTPException(status_code=400, detail=f"{f.filename}: {e}")
+    if attachments:
         log.info("sending %s", [(a.name, a.mime, len(a.data)) for a in attachments])
     if not text.strip() and not attachments:
         raise HTTPException(status_code=400, detail="Add a description or a file.")
-    chars = len(text) + sum(len(a.data) for a in attachments if a.is_text)
-    if chars > MAX_CHARS:
+    size = sum(len(a.data) for a in attachments)
+    if size > MAX_FILE_BYTES:
+        raise HTTPException(status_code=413, detail=f"The files add up to {size // (1024 * 1024)} MB. Together they "
+                                                    f"must stay under {MAX_FILE_BYTES // (1024 * 1024)} MB.")
+    chars, limit = len(text) + sum(len(a.data) for a in attachments if a.is_text), max_chars()
+    if chars > limit:
         log.warning("input too long: %d chars", chars)
-        raise HTTPException(status_code=413, detail=f"This document is too long ({chars} characters). The limit is {MAX_CHARS} until chunking is built.")
+        raise HTTPException(status_code=413, detail=f"The text is too long ({chars:,} characters). The limit is {limit:,}.")
     start, attempts = time.monotonic(), []
+    # runs are saved in a folder named after the input: the file, or the first file and how many others
+    label = None if not names else names[0] if len(names) == 1 else f"{names[0].rsplit('.', 1)[0]} +{len(names) - 1} more"
 
     def save(**kw):
-        save_run(text, file.filename if file else None, attachments, attempts=attempts, run={
-            "model": getattr(provider, "used", None), "model_calls": getattr(provider, "calls", None),
+        save_run(text, label, attachments, attempts=attempts, run={
+            "files": names, "model": getattr(provider, "used", None), "model_calls": getattr(provider, "calls", None),
             "seconds": round(time.monotonic() - start, 1)}, **kw)
 
     try:

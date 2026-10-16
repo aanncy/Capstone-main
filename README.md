@@ -6,12 +6,20 @@ and sends it to a draw.io editor in the browser, where people review, amend and 
 
 ## Using the app
 
-1. **Create.** Paste a description, upload a file (`.pdf`, `.docx`, `.txt`, `.md`, `.png`, `.jpg`, `.webp`, up to 14 MB),
+1. **Create.** Paste a description, upload files (`.pdf`, `.docx`, `.txt`, `.md`, `.png`, `.jpg`, `.webp`; up to 10 files and 14 MB in total, combined into one diagram),
    or both, and click **Create diagram**. Long documents take a minute or two.
 2. **Review.** The diagram opens in the draw.io editor. Each lane has its own colour and its name repeats along the lane.
-   The **Needs review** list (right-hand panel) shows the steps, lanes and connections the AI was unsure about:
-   **yellow** for confidence 40 to 69 %, **red** below 40 %. Unsure connections are also drawn **dashed**.
-   Check each one, then click its **✓** (or **Mark all as reviewed**): its confidence becomes 100 % and it leaves the list.
+   The AI classifies every lane, step and connection by how directly the sources support it:
+   **stated** (said outright), **derived** (stated, but partly worked out), **implied** (the sources suggest it)
+   or **guess** (added to fill a gap). The **Needs review** list (right-hand panel) shows:
+   - **red**: guesses, and places where the sources disagree (with what each says and which version was drawn);
+   - **yellow**: implied items, and questions the sources leave open.
+
+   Click an item to zoom the editor onto it (**Show whole diagram** zooms back out).
+   Implied and guessed connections are also drawn **dashed**. Check each item, then click its **✓**
+   (or **Mark all as reviewed**): it becomes **reviewed** and leaves the list. Under the list,
+   **Left out on purpose** shows the sections of the sources the AI read but did not draw (document control,
+   definitions and so on), so you can confirm nothing relevant was missed.
 3. **Amend.** Under **Describe the change**, type what to change in plain words (for example "Add a compliance
    review after approval") and click **Apply change** (or Ctrl/⌘ + Enter). Your own edits in the editor are kept;
    the layout is redrawn.
@@ -102,7 +110,10 @@ document ──▶ AI model ──▶ diagram JSON ──▶ check ──▶ lay
 amend:  editor XML ──▶ diagram JSON ──▶ AI applies the change ──▶ check ──▶ layout ──▶ editor
 ```
 
-The AI only produces the content (lanes, steps, connections, confidence). Positions, sizes and arrow routes are
+The AI only produces the content (lanes, steps, connections, support categories, conflicts, open questions).
+With Gemini the reply is held to a JSON schema (structured output). New diagrams use 8 step types (start, end, task,
+decision, parallel, subprocess, document, database); the converter also draws the older flowchart symbols, so
+earlier diagrams and shapes chosen by hand keep working. Positions, sizes and arrow routes are
 computed by `convert.py`: steps are placed in columns by their order in the flow, arrows are routed through the gaps
 between boxes so they never cross a box, and arrows sharing a gap get their own track so they never overlap.
 
@@ -113,7 +124,7 @@ between boxes so they never cross a box, and arrows sharing a gap get their own 
 | File | Job |
 |---|---|
 | `main.py` | The API: `POST /api/generate` (text and/or file) and `POST /api/amend` (current diagram + instruction) |
-| `prompts.py` | The instructions sent to the AI: the JSON format, level of detail, confidence scale, amend rules. **Edit this to change what the AI produces** |
+| `prompts.py` | The instructions sent to the AI: the JSON format, how to combine several sources, support categories, amend rules. **Edit this to change what the AI produces** |
 | `schema.py` | The diagram JSON format, and the checks every diagram must pass (one start, labelled decision exits, nothing unreachable...) |
 | `pipeline.py` | Ask the AI, check the reply, and ask again with the problems listed |
 | `providers.py` | Talks to Gemini / GitHub Models / Copilot SDK, with fallback |
@@ -132,7 +143,7 @@ between boxes so they never cross a box, and arrows sharing a gap get their own 
 | `pages.tsx` | The pages, the amend panel and the Needs review list |
 | `DrawioEditor.tsx` | Embeds draw.io in an iframe and talks to it |
 | `api.ts` | Calls `/api/generate` and `/api/amend` |
-| `review.ts` | Finds low-confidence items in the diagram and marks them reviewed |
+| `review.ts` | Finds what needs review (guessed or implied items, conflicts, open questions) and marks it reviewed |
 | `styles.css` | All styling |
 
 **Deployment:** `docker-compose.yml`, `Dockerfile` (frontend + nginx), `nginx.conf`, `backend/Dockerfile`.
@@ -158,5 +169,6 @@ Logs are in `backend/logs/backend.log` (sizes only, never document text). Both f
 
 - Documents over 15,000 characters of text are refused.
 - PDFs and images need `PROVIDERS=gemini`; the other providers take text only.
-- Confidence scores are the AI's own estimate: a guide for what to review, not a measurement.
+- Support categories are the AI's own classification: a guide for what to review, not a guarantee. A "stated"
+  item can still be wrong.
 - Documents are sent to the hosted AI service. Only use documents you are allowed to share with it.

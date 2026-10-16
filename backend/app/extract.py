@@ -9,7 +9,9 @@ from fastapi import UploadFile
 log = logging.getLogger("app.extract")
 
 # Gemini allows about 20 MB per request, and files grow by a third when base64 encoded.
+# All files of one request share this limit, since they go to the AI together.
 MAX_FILE_BYTES = 14 * 1024 * 1024
+MAX_FILES = 10
 
 MIME_BY_EXT = {
     ".pdf": "application/pdf",

@@ -2,37 +2,77 @@
 from collections import deque
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 NodeType = Literal[
-    "start", "end", "task", "decision", "subprocess",
+    "start", "end", "task", "decision", "parallel", "subprocess",
     "document", "multiple_documents", "data_storage", "internal_storage",
     "database", "manual_input", "manual_operation", "input_output", "display",
     "merge", "connector", "predefined_process",
 ]
+# The types the AI may choose when it creates a diagram. A short list keeps it from picking a special symbol for
+# what is simply a task. The converter still draws every NodeType, so older diagrams and hand-picked shapes work.
+AI_NODE_TYPES = ["start", "end", "task", "decision", "parallel", "subprocess", "document", "database"]
+
+# How directly the sources support an item. The AI picks one of the first four; only a person sets "reviewed".
+Support = Literal["stated", "derived", "implied", "guess", "reviewed"]
+AI_SUPPORT = ["stated", "derived", "implied", "guess"]
+NEEDS_REVIEW = {"implied", "guess"}
 
 
-class Lane(BaseModel):
+class _Supported(BaseModel):
+    """Lanes, nodes and edges carry a support category and the sources that back them."""
+    support: Support = "derived"
+    sources: list[str] = []
+
+    @model_validator(mode="before")
+    @classmethod
+    def _from_confidence(cls, data):
+        # diagrams saved before categories had a number from 0 to 1 instead (1 meant a person reviewed it)
+        if isinstance(data, dict) and "support" not in data and "confidence" in data:
+            c = float(data["confidence"])
+            data = {**data, "support": "reviewed" if c >= 1 else "stated" if c >= 0.9 else "derived" if c >= 0.7
+                    else "implied" if c >= 0.4 else "guess"}
+        return data
+
+
+class Lane(_Supported):
     id: str
     name: str
-    confidence: float = Field(default=0.8, ge=0, le=1)  # how sure the AI is this party really does these steps
 
 
-class Node(BaseModel):
+class Node(_Supported):
     id: str
     type: NodeType
     label: str
     lane: str                      # id of a lane
-    source_ref: str = ""           # where in the document this step came from
-    confidence: float = Field(default=0.8, ge=0, le=1)
+    source_ref: str = ""           # which source this step came from, and where in it
 
 
-class Edge(BaseModel):
+class Edge(_Supported):
     model_config = ConfigDict(populate_by_name=True)
+    id: str = ""                   # e1, e2... (optional; the converter numbers edges without one)
     source: str = Field(alias="from")
     target: str = Field(alias="to")
     label: str = ""
-    confidence: float = Field(default=0.8, ge=0, le=1)  # how sure the AI is the process really goes this way
+
+
+class Conflict(BaseModel):
+    affects: list[str] = []        # ids of the lanes, nodes or edges involved
+    description: str               # what each source says
+    resolution: str = ""           # which version was drawn and why
+
+
+class OpenQuestion(BaseModel):
+    question: str
+    affects: list[str] = []
+    source_ref: str = ""
+
+
+class SkippedSection(BaseModel):
+    source: str = ""
+    section: str
+    reason: str = ""
 
 
 class Diagram(BaseModel):
@@ -40,6 +80,9 @@ class Diagram(BaseModel):
     lanes: list[Lane]
     nodes: list[Node]
     edges: list[Edge]
+    conflicts: list[Conflict] = []
+    open_questions: list[OpenQuestion] = []
+    skipped_sections: list[SkippedSection] = []
 
 
 def check_logic(d: Diagram) -> list[str]:
@@ -80,6 +123,15 @@ def check_logic(d: Diagram) -> list[str]:
                 errs.append(f"Decision '{n.id}' ('{n.label}') needs at least two exits.")
             elif any(not e.label.strip() for e in outs):
                 errs.append(f"Every exit of decision '{n.id}' ('{n.label}') needs a label such as Yes or No.")
+        if n.type == "parallel" and len(outs) < 2 and sum(e.target == n.id for e in good_edges) < 2:
+            errs.append(f"Parallel step '{n.id}' must split the flow (2+ outgoing arrows) or join it (2+ incoming).")
+
+    known = lanes | ids | {e.id for e in d.edges if e.id}
+    for kind, items in (("Conflict", d.conflicts), ("Open question", d.open_questions)):
+        for i, item in enumerate(items, start=1):
+            missing = [x for x in item.affects if x not in known]
+            if missing:
+                errs.append(f"{kind} {i} refers to ids that do not exist: {', '.join(missing)}.")
 
     if len(starts) == 1 and not errs:
         seen, queue = {starts[0].id}, deque([starts[0].id])

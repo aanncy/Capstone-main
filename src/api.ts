@@ -1,5 +1,7 @@
 export type Stage = "reading" | "generating" | "checking" | "drawing";
-export type GenerateInput = { text: string; file: File | null };
+export type GenerateInput = { text: string; files: File[] };
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 export const STAGES: { id: Stage; label: string; hint: string }[] = [
   { id: "reading", label: "Reading your document", hint: "Extracting the text" },
@@ -9,25 +11,71 @@ export const STAGES: { id: Stage; label: string; hint: string }[] = [
 ];
 
 /**
- * One entry point for the whole pipeline: POST /api/generate (multipart: text, file) and get { xml } back.
+ * One entry point for the whole pipeline: POST /api/generate (multipart: text, files) and get { xml } back.
+ * Several files (an SOP, a transcript, a sketch...) are collated into one diagram.
  * The backend decides which AI model to use; the UI never knows.
  */
 export async function generateDiagram(
   input: GenerateInput,
   onStage: (s: Stage) => void
 ): Promise<{ xml: string }> {
-  onStage("reading");
+  const minimumStageDuration = 500;
   const body = new FormData();
   body.append("text", input.text);
-  if (input.file) body.append("file", input.file);
+  for (const f of input.files) body.append("files", f);
+
+  onStage("reading");
+  await sleep(minimumStageDuration);
   onStage("generating");
-  const res = await fetch("/api/generate", { method: "POST", body });
-  if (!res.ok) {
-    const detail = await res.json().then((j) => j.detail as string).catch(() => null);
-    throw new Error(detail ?? `The server returned an error (${res.status}).`);
+
+  let estimatedStage: Stage = "generating";
+  let stageStartedAt = Date.now();
+  const checkingTimer = window.setTimeout(() => {
+    estimatedStage = "checking";
+    stageStartedAt = Date.now();
+    onStage("checking");
+  }, 2500);
+  const drawingTimer = window.setTimeout(() => {
+    estimatedStage = "drawing";
+    stageStartedAt = Date.now();
+    onStage("drawing");
+  }, 8000);
+
+  try {
+    const res = await fetch("/api/generate", { method: "POST", body });
+    if (!res.ok) {
+      const detail = await res.json().then((j) => j.detail as string).catch(() => null);
+      throw new Error(detail ?? `The server returned an error (${res.status}).`);
+    }
+
+    const result = (await res.json()) as { xml: string };
+    window.clearTimeout(checkingTimer);
+    window.clearTimeout(drawingTimer);
+
+    if (estimatedStage === "generating") {
+      await sleep(Math.max(0, minimumStageDuration - (Date.now() - stageStartedAt)));
+      estimatedStage = "checking";
+      stageStartedAt = Date.now();
+      onStage("checking");
+      await sleep(minimumStageDuration);
+      estimatedStage = "drawing";
+      stageStartedAt = Date.now();
+      onStage("drawing");
+      await sleep(minimumStageDuration);
+    } else if (estimatedStage === "checking") {
+      estimatedStage = "drawing";
+      stageStartedAt = Date.now();
+      onStage("drawing");
+      await sleep(minimumStageDuration);
+    } else {
+      await sleep(Math.max(0, minimumStageDuration - (Date.now() - stageStartedAt)));
+    }
+
+    return result;
+  } finally {
+    window.clearTimeout(checkingTimer);
+    window.clearTimeout(drawingTimer);
   }
-  onStage("drawing");
-  return (await res.json()) as { xml: string };
 }
 
 /**
@@ -45,4 +93,35 @@ export async function amendDiagram(xml: string, instruction: string): Promise<{ 
     throw new Error(detail ?? `The server returned an error (${res.status}).`);
   }
   return (await res.json()) as { xml: string };
+}
+
+/** A saved run the History tab can reopen (backend/app/history.py list_runs). */
+export type HistoryRun = {
+  id: string; // "<folder>/<file stem>" under backend/outputs
+  time: string | null;
+  model: string | null; // "provider/model", e.g. "gemini/gemini-3.7-flash"
+  kind: "generate" | "amend";
+  documents: string[];
+  typed: boolean; // a description was typed in as well as (or instead of) files
+  instruction: string; // the change asked for, on amend runs
+  title: string;
+};
+
+async function getJson<T>(url: string): Promise<T> {
+  const res = await fetch(url);
+  if (!res.ok) {
+    const detail = await res.json().then((j) => j.detail as string).catch(() => null);
+    throw new Error(detail ?? `The server returned an error (${res.status}).`);
+  }
+  return (await res.json()) as T;
+}
+
+/** GET /api/history: earlier runs that produced a diagram, newest first. */
+export async function listRuns(): Promise<HistoryRun[]> {
+  return (await getJson<{ runs: HistoryRun[] }>("/api/history")).runs;
+}
+
+/** GET /api/history/<id>: the saved .drawio of one run. */
+export async function openRun(id: string): Promise<{ xml: string }> {
+  return getJson<{ xml: string }>(`/api/history/${id.split("/").map(encodeURIComponent).join("/")}`);
 }

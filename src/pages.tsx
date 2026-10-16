@@ -4,38 +4,72 @@ import type { DragEvent } from "react";
 import DrawioEditor from "./DrawioEditor";
 import type { EditorHandle } from "./DrawioEditor";
 
-import { STAGES, amendDiagram } from "./api";
-import { findFlags, markReviewed } from "./review";
-import type { Flag } from "./review";
-import type { GenerateInput, Stage } from "./api";
+import { STAGES, amendDiagram, listRuns, openRun } from "./api";
+import { findFlags, findSkipped, markReviewed } from "./review";
+import type { Box, Flag, Skipped } from "./review";
+import type { GenerateInput, HistoryRun, Stage } from "./api";
 
 import { SAMPLE_TEXT } from "./sampleDiagram";
 
 /* ---------------------------------------------------------------- Input */
 
+// match the backend (backend/app/extract.py): one request carries all files to the AI
+const MAX_FILES = 10;
+const MAX_TOTAL_MB = 14;
+const MAX_TOTAL_BYTES = MAX_TOTAL_MB * 1024 * 1024;
+
+const formatSize = (bytes: number) =>
+  bytes >= 1024 * 1024
+    ? `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+    : `${Math.max(1, Math.round(bytes / 1024))} KB`;
+
 export function InputPage({
   onGenerate,
+  onOpen,
 }: {
   onGenerate: (i: GenerateInput) => void;
+  onOpen: (xml: string) => void;
 }) {
+  const [tab, setTab] = useState<"new" | "history">("new");
   const [text, setText] = useState("");
-  const [file, setFile] = useState<File | null>(null);
+  const [files, setFiles] = useState<File[]>([]);
   const [over, setOver] = useState(false);
 
   const canSubmit =
-    text.trim().length > 0 || file !== null;
+    text.trim().length > 0 || files.length > 0;
+
+  // several sources about one process (an SOP, a meeting transcript, a rough diagram...) are collated into one diagram
+  const addFiles = (list: FileList | null) => {
+    if (!list) return;
+    // FileList belongs to the input/drop event. Snapshot it before the input
+    // is reset: React may run the state updater after that reset clears it.
+    const incoming = Array.from(list);
+
+    setFiles((current) => {
+      const seen = new Set(current.map((f) => `${f.name}/${f.size}`));
+      const added = incoming.filter((f) => {
+        const key = `${f.name}/${f.size}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+
+      return [...current, ...added].slice(0, MAX_FILES);
+    });
+  };
+
+  const totalBytes =
+    files.reduce((sum, f) => sum + f.size, 0);
+
+  const tooBig =
+    totalBytes > MAX_TOTAL_BYTES;
 
   const onDrop = (
     e: DragEvent<HTMLLabelElement>
   ) => {
     e.preventDefault();
     setOver(false);
-
-    const f = e.dataTransfer.files?.[0];
-
-    if (f) {
-      setFile(f);
-    }
+    addFiles(e.dataTransfer.files);
   };
 
   return (
@@ -52,7 +86,34 @@ export function InputPage({
         </p>
       </section>
 
-      <section className="creation-section">
+      <div className="input-tabs" role="tablist" aria-label="Create or reopen a diagram">
+        <button
+          type="button"
+          role="tab"
+          id="tab-new"
+          aria-selected={tab === "new"}
+          aria-controls="panel-new"
+          className={tab === "new" ? "active" : ""}
+          onClick={() => setTab("new")}
+        >
+          New diagram
+        </button>
+        <button
+          type="button"
+          role="tab"
+          id="tab-history"
+          aria-selected={tab === "history"}
+          aria-controls="panel-history"
+          className={tab === "history" ? "active" : ""}
+          onClick={() => setTab("history")}
+        >
+          History
+        </button>
+      </div>
+
+      {tab === "history" && <HistoryList onOpen={onOpen} />}
+
+      <section className="creation-section" id="panel-new" role="tabpanel" aria-labelledby="tab-new" hidden={tab !== "new"}>
         <div className="creation-inner">
           <div className="textarea-shell">
             <div className="textarea-head">
@@ -79,7 +140,7 @@ export function InputPage({
           </div>
 
           <div className="upload-area">
-            <h2>Or upload a document</h2>
+            <h2>Or upload documents</h2>
 
             <label
               className={`drop${over ? " over" : ""}`}
@@ -92,38 +153,58 @@ export function InputPage({
             >
               <input
                 type="file"
-                accept=".pdf,.docx,.txt,.md,.png,.jpg,.jpeg"
-                onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+                multiple
+                accept=".pdf,.docx,.txt,.md,.png,.jpg,.jpeg,.webp"
+                onChange={(e) => {
+                  addFiles(e.target.files);
+                  e.target.value = ""; // so the same file can be picked again after removing it
+                }}
               />
 
               <div className="upload-icon">↑</div>
 
-              {file ? (
-                <>
-                  <div className="upload-title">{file.name}</div>
-                  <p className="upload-copy">
-                    {Math.max(1, Math.round(file.size / 1024))} KB
-                  </p>
-                  <span className="upload-types">READY TO USE</span>
-                </>
-              ) : (
-                <>
-                  <div className="upload-title">Choose a file or drop it here</div>
-                  <p className="upload-copy">
-                    PDF · DOCX · TXT · MD · PNG · JPG
-                  </p>
-                </>
-              )}
+              <div className="upload-title">
+                {files.length ? "Add more files" : "Choose files or drop them here"}
+              </div>
+
+              <p className="upload-copy">
+                PDF · DOCX · TXT · MD · PNG · JPG · up to {MAX_FILES} files, {MAX_TOTAL_MB} MB in total
+              </p>
             </label>
 
-            {file && (
-              <button
-                type="button"
-                className="remove-file"
-                onClick={() => setFile(null)}
-              >
-                Remove file
-              </button>
+            {files.length > 0 && (
+              <ul className="file-list">
+                {files.map((f, i) => (
+                  <li key={`${f.name}/${f.size}`}>
+                    <span className="file-name">{f.name}</span>
+
+                    <span className="file-size">
+                      {formatSize(f.size)}
+                    </span>
+
+                    <button
+                      type="button"
+                      className="file-remove"
+                      aria-label={`Remove ${f.name}`}
+                      onClick={() => setFiles((current) => current.filter((_, j) => j !== i))}
+                    >
+                      ×
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+
+            {files.length > 1 && !tooBig && (
+              <p className="upload-note">
+                These {files.length} files will be combined into one diagram.
+              </p>
+            )}
+
+            {tooBig && (
+              <p className="upload-note err" role="alert">
+                The files add up to {formatSize(totalBytes)}. Together they must stay under {MAX_TOTAL_MB} MB.
+              </p>
             )}
           </div>
 
@@ -131,8 +212,8 @@ export function InputPage({
             <button
               type="button"
               className="primary generate-button"
-              disabled={!canSubmit}
-              onClick={() => onGenerate({ text, file })}
+              disabled={!canSubmit || tooBig}
+              onClick={() => onGenerate({ text, files })}
             >
               Generate diagram
               <span aria-hidden="true">→</span>
@@ -141,6 +222,98 @@ export function InputPage({
         </div>
       </section>
     </div>
+  );
+}
+
+/* ---------------------------------------------------------------- History */
+
+const formatRunTime = (iso: string | null) =>
+  iso
+    ? new Date(iso).toLocaleString(undefined, {
+        day: "numeric",
+        month: "short",
+        year: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+      })
+    : "Unknown time";
+
+// "gemini/gemini-3.7-flash" -> "gemini-3.7-flash"; the provider is implied by the model name
+const formatModel = (model: string | null) =>
+  model ? model.split("/").slice(1).join("/") || model : "Unknown model";
+
+function runSources(run: HistoryRun): string {
+  if (run.kind === "amend") return `Change: ${run.instruction || run.title}`;
+  const parts = [...run.documents];
+  if (run.typed) parts.push("Typed description");
+  return parts.join(", ") || "Typed description";
+}
+
+function HistoryList({ onOpen }: { onOpen: (xml: string) => void }) {
+  const [runs, setRuns] = useState<HistoryRun[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [opening, setOpening] = useState<string | null>(null);
+
+  useEffect(() => {
+    listRuns()
+      .then(setRuns)
+      .catch((e) => setError(e instanceof Error ? e.message : "Could not load earlier runs."));
+  }, []);
+
+  const open = async (id: string) => {
+    setOpening(id);
+    setError(null);
+    try {
+      onOpen((await openRun(id)).xml);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not open this run.");
+      setOpening(null);
+    }
+  };
+
+  return (
+    <section className="history-section" id="panel-history" role="tabpanel" aria-labelledby="tab-history">
+      <div className="history-inner">
+        {error && (
+          <p className="upload-note err" role="alert">
+            {error}
+          </p>
+        )}
+
+        {!runs && !error && <p className="history-empty">Loading earlier runs…</p>}
+
+        {runs && runs.length === 0 && (
+          <p className="history-empty">
+            No saved runs yet. Diagrams you create are listed here so you can reopen them.
+          </p>
+        )}
+
+        {runs && runs.length > 0 && (
+          <ul className="history-list">
+            {runs.map((run) => (
+              <li key={run.id}>
+                <button
+                  type="button"
+                  className="history-row"
+                  disabled={opening !== null}
+                  onClick={() => open(run.id)}
+                >
+                  <span className="history-docs">{runSources(run)}</span>
+                  {run.title && <span className="history-title">{run.title}</span>}
+                  <span className="history-meta">
+                    <time dateTime={run.time ?? undefined}>{formatRunTime(run.time)}</time>
+                    <span>{formatModel(run.model)}</span>
+                  </span>
+                  <span className="history-open" aria-hidden="true">
+                    {opening === run.id ? "Opening…" : "Open →"}
+                  </span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    </section>
   );
 }
 
@@ -299,15 +472,22 @@ export function EditorPage({
       setLatest(x);
     }, []);
 
-  // low-confidence steps and lanes, kept in step with the editor
+  // what needs review (weakly supported items, conflicts, open questions), kept in step with the editor
   const [flags, setFlags] =
     useState<Flag[]>([]);
+
+  const [skipped, setSkipped] =
+    useState<Skipped[]>([]);
 
   useEffect(() => {
     let current = true;
 
     findFlags(latest).then((f) => {
       if (current) setFlags(f);
+    });
+
+    findSkipped(latest).then((s) => {
+      if (current) setSkipped(s);
     });
 
     return () => {
@@ -393,6 +573,9 @@ export function EditorPage({
 
           <AmendPanel
             flags={flags}
+            skipped={skipped}
+            onShow={(area) => editor.current?.showArea(area)}
+            onShowAll={() => editor.current?.showAll()}
             onClearFlags={clearFlags}
             onApply={async (instruction) => {
               const result =
@@ -418,10 +601,16 @@ export function EditorPage({
  */
 function AmendPanel({
   flags,
+  skipped,
+  onShow,
+  onShowAll,
   onClearFlags,
   onApply,
 }: {
   flags: Flag[];
+  skipped: Skipped[];
+  onShow: (area: Box) => void;
+  onShowAll: () => void;
   onClearFlags: (ids: string[]) => Promise<void>;
   onApply: (instruction: string) => Promise<void>;
 }) {
@@ -526,6 +715,9 @@ function AmendPanel({
       <div className="amend-body">
         <ReviewList
           flags={flags}
+          skipped={skipped}
+          onShow={onShow}
+          onShowAll={onShowAll}
           disabled={busy || clearing}
           onClear={clear}
         />
@@ -599,22 +791,41 @@ function AmendPanel({
 }
 
 /**
- * Steps, lanes and connections the AI was unsure about (confidence under 0.7):
- * yellow from 0.4 to under 0.7, red under 0.4.
- * The tick on an item marks just that one as reviewed; "Mark all as reviewed" does every item.
- * Reviewed items get confidence 1 and leave the list.
+ * What a person should check before the diagram is used:
+ * - steps, lanes and connections the AI classified as "guess" (red) or "implied" (yellow);
+ * - places where the sources disagree (red) and questions the sources leave open (yellow).
+ * Clicking an item zooms the editor onto it. The tick on an item marks just that one as reviewed;
+ * "Mark all as reviewed" does every item.
+ * Below the list, the sections of the sources the AI read but left out on purpose.
  */
 function ReviewList({
   flags,
+  skipped,
   disabled,
+  onShow,
+  onShowAll,
   onClear,
 }: {
   flags: Flag[];
+  skipped: Skipped[];
   disabled: boolean;
+  onShow: (area: Box) => void;
+  onShowAll: () => void;
   onClear: (ids: string[]) => void;
 }) {
   const red =
     flags.filter((f) => f.level === "red").length;
+
+  // the item last shown in the editor, highlighted in the list
+  const [active, setActive] =
+    useState<string | null>(null);
+
+  const show = (f: Flag) => {
+    if (!f.area) return;
+
+    setActive(f.id);
+    onShow(f.area);
+  };
 
   return (
     <section
@@ -632,14 +843,14 @@ function ReviewList({
         {flags.length > 0 && (
           <span className="review-count">
             {flags.length}
-            {red > 0 && ` (${red} low)`}
+            {red > 0 && ` (${red} urgent)`}
           </span>
         )}
       </div>
 
       {flags.length === 0 ? (
         <p className="review-empty">
-          No low-confidence steps, lanes or connections.
+          Nothing to review: no guessed or implied items, conflicts or open questions.
         </p>
       ) : (
         <>
@@ -647,18 +858,29 @@ function ReviewList({
             {flags.map((f) => (
               <li
                 key={f.id}
-                className={`review-item ${f.level}`}
-                title={`${f.kind} ${f.id}: confidence ${f.confidence}`}
+                className={`review-item ${f.level}${active === f.id ? " active" : ""}`}
               >
-                <span className="review-text">
+                <button
+                  type="button"
+                  className="review-text"
+                  disabled={!f.area}
+                  onClick={() => show(f)}
+                  title={f.area ? "Show in the diagram" : "Not linked to a place in the diagram"}
+                >
                   <span className="review-label">
                     {f.label}
                   </span>
 
+                  {f.detail && (
+                    <span className="review-detail">
+                      {f.detail}
+                    </span>
+                  )}
+
                   <span className="review-meta">
-                    {f.kind} · {Math.round(f.confidence * 100)}%
+                    {f.kind} · {f.category}
                   </span>
-                </span>
+                </button>
 
                 <button
                   type="button"
@@ -674,15 +896,46 @@ function ReviewList({
             ))}
           </ul>
 
-          <button
-            type="button"
-            className="secondary review-clear"
-            disabled={disabled}
-            onClick={() => onClear(flags.map((f) => f.id))}
-          >
-            Mark all as reviewed
-          </button>
+          <div className="review-actions">
+            <button
+              type="button"
+              className="secondary review-clear"
+              disabled={disabled}
+              onClick={() => onClear(flags.map((f) => f.id))}
+            >
+              Mark all as reviewed
+            </button>
+
+            <button
+              type="button"
+              className="secondary review-clear"
+              onClick={() => {
+                setActive(null);
+                onShowAll();
+              }}
+            >
+              Show whole diagram
+            </button>
+          </div>
         </>
+      )}
+
+      {skipped.length > 0 && (
+        <details className="review-skipped">
+          <summary>
+            Left out on purpose ({skipped.length})
+          </summary>
+
+          <ul>
+            {skipped.map((x, i) => (
+              <li key={i}>
+                <strong>{x.section}</strong>
+                {x.source && ` (${x.source})`}
+                {x.reason && `: ${x.reason}`}
+              </li>
+            ))}
+          </ul>
+        </details>
       )}
     </section>
   );

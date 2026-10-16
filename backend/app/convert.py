@@ -14,10 +14,11 @@ import colorsys
 import heapq
 import html
 import itertools
+import json
 import math
 import textwrap
 
-from .schema import Diagram
+from .schema import NEEDS_REVIEW, Diagram
 
 LANE_X, LANE_Y, HEADER = 40, 40, 32   # where the lanes start, and the width of their title strip
 COL_GAP, PAD, ROW_GAP = 90, 40, 60    # starting size of the gaps arrows run in (grown when needed)
@@ -36,7 +37,8 @@ SHAPES = {"start": (160, 50, 280, (.12, .12, .08, .08)), "end": (160, 50, 280, (
           "database": (180, 90, 300, (.05, .05, .22, .12)), "manual_input": (190, 80, 300, (.05, .05, .3, .05)),
           "manual_operation": (190, 80, 300, (.23, .23, .05, .05)), "input_output": (190, 70, 300, (.2, .2, .05, .05)),
           "display": (190, 70, 300, (.2, .12, .05, .05)), "merge": (160, 100, 300, (.28, .28, .05, .45)),
-          "connector": (90, 90, 200, (.15, .15, .15, .15))}
+          "connector": (90, 90, 200, (.15, .15, .15, .15)),
+          "parallel": (16, 100, 16, (0, 0, 0, 0))}  # a thin bar that splits or joins the flow; its label is hidden
 MAX_TALL = {"decision": 0.65}  # widen a diamond rather than let it grow taller than this times its width
 ONE_PER_SIDE = {"start", "end", "decision", "connector", "merge"}  # shapes whose sides only have one clean attachment point
 STYLES = {
@@ -60,6 +62,7 @@ _FLOWCHART_SHAPES = {
     "merge": "shape=mxgraph.flowchart.merge_or_storage;",
     "connector": "shape=ellipse;perimeter=ellipsePerimeter;aspect=fixed;",
     "predefined_process": "shape=process;size=0.14;backgroundOutline=1;",
+    "parallel": "rounded=0;noLabel=1;",
 }
 STYLES.update({kind: shape + "html=1;whiteSpace=wrap;fillColor=#ffffff;strokeColor=#334155;"
                for kind, shape in _FLOWCHART_SHAPES.items()})
@@ -71,7 +74,6 @@ TAG = "text;html=1;align=left;verticalAlign=middle;fontSize=11;fontStyle=1;textO
       "movable=0;resizable=0;editable=0;connectable=0;"
 EDGE = "edgeStyle=none;rounded=1;html=1;endArrow=block;endFill=1;jumpStyle=arc;jumpSize=10;strokeColor=#334155;"
 LABEL = "labelBackgroundColor=#ffffff;fontSize=11;fontStyle=1;"
-REVIEW_BELOW = 0.7  # arrows the AI is less sure of than this are drawn dashed until a person reviews them
 YES = {"yes", "y", "true", "approved", "pass", "passed", "valid", "ok"}
 NO = {"no", "n", "false", "rejected", "fail", "failed", "invalid"}
 OUT = {"R": (1, 0), "L": (-1, 0), "T": (0, -1), "B": (0, 1)}  # direction leaving each side of a box
@@ -99,6 +101,8 @@ def _size(n) -> tuple[int, int]:
         h = max(min_h, math.ceil((lines * LINE_H + 8) / (1 - top - bottom)))
         if n.type == "connector":
             w = h = max(w, h)
+        if n.type == "parallel":
+            return w0, min_h
         if h <= w * MAX_TALL.get(n.type, 99) or w >= w_max:
             return w, h + h % 2
     return w_max, min_h
@@ -696,17 +700,45 @@ def _tag_spots(lay, top: float, width: float, taken) -> list[float]:
     return spots
 
 
+def _support_attrs(item) -> str:
+    """How well the sources back this lane, step or arrow, and which sources (custom attributes in draw.io)."""
+    if item is None:  # a lane only referenced by a step
+        return 'support="guess" sources=""'
+    return f'support="{item.support}" sources="{_e("; ".join(item.sources))}"'
+
+
+def _tooltip(n) -> str:
+    # a parallel bar hides its label; show it on hover instead
+    return f' tooltip="{_e(n.label)}"' if n.type == "parallel" else ""
+
+
+def _edge_ids(edges, taken: set) -> list[str]:
+    """The AI's edge ids (e1, e2...) where usable, otherwise new unique ones."""
+    out = []
+    for k, e in enumerate(edges):
+        i = e.id if e.id and e.id not in taken else f"e{k + 1}"
+        while i in taken:
+            i += "_"
+        taken.add(i)
+        out.append(i)
+    return out
+
+
 def to_drawio_xml(d: Diagram) -> str:
     lay = _Layout(d)
     names = {l.id: l.name for l in d.lanes}
-    confidence = {l.id: l.confidence for l in d.lanes}
-    out = ['<mxCell id="0"/>', '<mxCell id="1" parent="0"/>']
+    lanes = {l.id: l for l in d.lanes}
+    # what the AI found about the diagram as a whole, kept on the root cell so it survives editing in draw.io
+    extra = {key: json.dumps([x.model_dump() for x in getattr(d, key)], ensure_ascii=False)
+             for key in ("conflicts", "open_questions", "skipped_sections")}
+    out = ['<object id="0" ' + " ".join(f'{k}="{_e(v)}"' for k, v in extra.items()) + '><mxCell/></object>',
+           '<mxCell id="1" parent="0"/>']
     taken = [seg for k in range(len(lay.edges)) for seg in zip(lay._points(k), lay._points(k)[1:])]
     for n, l in enumerate(lay.lanes):
         top, bottom = lay.lane_y[l]
         head, body, ink = _lane_colors(n)
         out.append(
-            f'<object label="{_e(names.get(l, l))}" id="lane_{_e(l)}" confidence="{confidence.get(l, 1.0)}">'
+            f'<object label="{_e(names.get(l, l))}" id="lane_{_e(l)}" {_support_attrs(lanes.get(l))}>'
             f'<mxCell style="{LANE}fillColor={head};swimlaneFillColor={body};fontColor={ink};" vertex="1" parent="1">'
             f'<mxGeometry x="{LANE_X}" y="{top}" width="{lay.width}" height="{bottom - top}" as="geometry"/></mxCell></object>'
         )
@@ -722,16 +754,17 @@ def to_drawio_xml(d: Diagram) -> str:
         top = lay.lane_y[n.lane][0]
         out.append(
             f'<object label="{_e(n.label)}" id="{_e(n.id)}" node_type="{n.type}" source_ref="{_e(n.source_ref)}" '
-            f'confidence="{n.confidence}">'
+            f'{_support_attrs(n)}{_tooltip(n)}>'
             f'<mxCell style="{STYLES[n.type]}{_text_margins(n.type, w, h)}" vertex="1" parent="lane_{_e(n.lane)}">'
             f'<mxGeometry x="{_r(x - LANE_X)}" y="{_r(y - top)}" width="{w}" height="{h}" as="geometry"/></mxCell></object>'
         )
+    edge_ids = _edge_ids(lay.edges, set(lay.nodes) | {f"lane_{l}" for l in lay.lanes})
     for k, e in enumerate(lay.edges):
         (s_side, *_, sfx, sfy), (_, *_, tfx, tfy) = lay.port[(k, 0)], lay.port[(k, 1)]
         pts = lay._points(k)
         style = (f"{EDGE}exitX={sfx:.6g};exitY={sfy:.6g};exitDx=0;exitDy=0;exitPerimeter=0;"
                  f"entryX={tfx:.6g};entryY={tfy:.6g};entryDx=0;entryDy=0;entryPerimeter=0;")
-        if e.confidence < REVIEW_BELOW:
+        if e.support in NEEDS_REVIEW:  # dashed until a person has checked it
             style += "dashed=1;"
         geo = '<mxGeometry relative="1" as="geometry">'
         label = e.label.strip()
@@ -744,7 +777,7 @@ def to_drawio_xml(d: Diagram) -> str:
         if waypoints:
             geo += f'<Array as="points">{waypoints}</Array>'
         out.append(
-            f'<object label="{_e(label)}" id="e{k + 1}" confidence="{e.confidence}">'
+            f'<object label="{_e(label)}" id="{_e(edge_ids[k])}" {_support_attrs(e)}>'
             f'<mxCell style="{style}" edge="1" parent="1" source="{_e(e.source)}" target="{_e(e.target)}">'
             f'{geo}</mxGeometry></mxCell></object>'
         )

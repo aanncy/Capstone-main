@@ -71,7 +71,13 @@ export default function App() {
 
       <main className="app-main">
         {screen === "input" && (
-          <InputPage onGenerate={run} />
+          <InputPage
+            onGenerate={run}
+            onOpen={(saved) => {
+              setXml(saved);
+              setScreen("editor");
+            }}
+          />
         )}
 
         {screen === "progress" && (
